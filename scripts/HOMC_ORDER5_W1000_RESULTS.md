@@ -212,3 +212,10 @@ result; out-of-sample validation is the bar for the strategy". A model
 that fails DSR but passes a clean holdout against a controlled baseline
 is in a category the conventional rule doesn't cover, and that's exactly
 where this HOMC result lives.
+
+---
+
+⚠ **Disclaimer**: This is an experimental research project. The results
+shown above are backtests and historical simulations — they do not
+predict future performance. Not financial advice. See the root
+[`README.md`](../README.md) for the full disclaimer and risk warning.

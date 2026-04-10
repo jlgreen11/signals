@@ -321,3 +321,10 @@ evidence-per-cost:
    dominance as additional features alongside return and volatility.
    Requires fetching macro data and extending the composite encoder
    to handle more than 2 features.
+
+---
+
+⚠ **Disclaimer**: This is an experimental research project. The results
+shown above are backtests and historical simulations — they do not
+predict future performance. Not financial advice. See the root
+[`README.md`](../README.md) for the full disclaimer and risk warning.

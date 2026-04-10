@@ -1,9 +1,27 @@
 # Signals
 
+[![CI](https://github.com/jlgreen11/signals/actions/workflows/ci.yml/badge.svg)](https://github.com/jlgreen11/signals/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-76%20passing-brightgreen.svg)](./tests)
+
 Markov-chain market signal generator with four swappable model backends,
 walk-forward backtesting, sized long/short execution, and a regime-routed
 **hybrid** default that achieves **median Sharpe 2.15 across 16 random
 6-month BTC windows** — the highest result in the project's history.
+
+## ⚠ Disclaimer
+
+This is an **experimental research project**. Nothing in this repo is
+financial advice. Backtest results are historical and **do not predict
+future performance** — they are especially unreliable for cryptocurrency,
+which has seen multiple ~80% drawdowns in the past decade. The authors
+assume no liability for losses from use of this software. Before risking
+capital, conduct your own due diligence, understand the model's
+limitations, and start with amounts you can afford to lose entirely.
+
+The project is provided under the MIT License with **no warranty of any
+kind, express or implied**. See [`LICENSE`](./LICENSE).
 
 **Production scope**: BTC-USD and ^GSPC (S&P 500).
 

@@ -362,3 +362,10 @@ python scripts/vol_quantile_sweep.py
 Both are deterministic (seed 42). Wall time for the random-window eval:
 ~35 seconds (64 backtests). Wall time for the vol quantile sweep: ~4-5
 minutes (14 × 16 = 224 backtests).
+
+---
+
+⚠ **Disclaimer**: This is an experimental research project. The results
+shown above are backtests and historical simulations — they do not
+predict future performance. Not financial advice. See the root
+[`README.md`](../README.md) for the full disclaimer and risk warning.

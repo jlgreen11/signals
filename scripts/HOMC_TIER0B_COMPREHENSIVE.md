@@ -349,3 +349,10 @@ python scripts/random_window_eval.py
 
 Seed 42, deterministic output. Wall time ~4 seconds for the script, ~4
 minutes total for the seven sweeps plus the eval.
+
+---
+
+⚠ **Disclaimer**: This is an experimental research project. The results
+shown above are backtests and historical simulations — they do not
+predict future performance. Not financial advice. See the root
+[`README.md`](../README.md) for the full disclaimer and risk warning.

@@ -360,3 +360,10 @@ CLI flag if testing HMM routing at scale).
 Deterministic seeds throughout. All sweep wall times ~35-45 seconds on a
 2024 M-series Mac. Random-window eval ~6 seconds for all 16 windows × 5
 models (64 backtests total).
+
+---
+
+⚠ **Disclaimer**: This is an experimental research project. The results
+shown above are backtests and historical simulations — they do not
+predict future performance. Not financial advice. See the root
+[`README.md`](../README.md) for the full disclaimer and risk warning.

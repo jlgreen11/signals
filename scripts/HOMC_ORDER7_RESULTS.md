@@ -176,3 +176,10 @@ M-series Mac. The same command on different hardware should produce
 bit-identical numbers (the engine and HOMC are deterministic; Quantile bin
 edges are computed from the training window only and have no random
 component).
+
+---
+
+⚠ **Disclaimer**: This is an experimental research project. The results
+shown above are backtests and historical simulations — they do not
+predict future performance. Not financial advice. See the root
+[`README.md`](../README.md) for the full disclaimer and risk warning.

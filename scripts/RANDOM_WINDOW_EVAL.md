@@ -83,3 +83,10 @@ python scripts/random_window_eval.py
 ```
 
 Change `rng = random.Random(42)` in the script for fresh draws on a different seed. The full output (including aggregates and capture stats) is regenerated deterministically.
+
+---
+
+⚠ **Disclaimer**: This is an experimental research project. The results
+shown above are backtests and historical simulations — they do not
+predict future performance. Not financial advice. See the root
+[`README.md`](../README.md) for the full disclaimer and risk warning.
