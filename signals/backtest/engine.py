@@ -78,6 +78,19 @@ class BacktestConfig:
     sell_threshold_bps: float = -35.0
     target_scale_bps: float = 20.0
     allow_short: bool = False         # tightened: BTC's secular uptrend punishes shorts
+    # max_long default is conservative (1.0 = no leverage). The Tier-0f sizing
+    # sweep (scripts/HOMC_TIER0F_SIZING_BLEND.md) showed Sharpe is flat across
+    # max_long ∈ [1.0, 2.0] while CAGR scales nearly linearly with leverage:
+    #
+    #   max_long=1.00  → median Sharpe 2.15, CAGR +156%, MDD -21% (default)
+    #   max_long=1.25  → median Sharpe 2.15, CAGR +216%, MDD -26%
+    #   max_long=1.50  → median Sharpe 2.16, CAGR +288%, MDD -30%
+    #   max_long=2.00  → median Sharpe 2.13, CAGR +480%, MDD -38%
+    #
+    # If you can tolerate larger drawdowns, passing --max-long 1.5 gives
+    # ~1.85× the CAGR of the default at the same Sharpe. This is a risk-
+    # tolerance decision, not a methodology one — the default is left at
+    # 1.0 deliberately.
     max_long: float = 1.0
     max_short: float = 1.0
     stop_loss_pct: float = 0.0        # tightened: empirically unhelpful for composite (sell signal exits faster than any reasonable stop)

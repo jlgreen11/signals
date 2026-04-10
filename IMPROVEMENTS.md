@@ -16,7 +16,25 @@ production defaults:**
   `scripts/HOMC_TIER0E_BTC_SP500.md` for the full comparison.
 
 Full H-Vol comparison on BTC still pinned in `HOMC_TIER0C_HYBRID_RESULTS.md`;
-the comprehensive BTC + S&P result is in `HOMC_TIER0E_BTC_SP500.md`.
+the comprehensive BTC + S&P result is in `HOMC_TIER0E_BTC_SP500.md`; the
+sizing and blend ramp sweeps are in `HOMC_TIER0F_SIZING_BLEND.md`.
+
+## Quick note on leverage (BTC)
+
+`max_long` defaults to 1.0 (no leverage) but is a clean risk/return dial.
+Sharpe is flat across max_long ∈ [1.0, 2.0]; CAGR scales linearly with
+leverage, MDD scales proportionally. Tier-0f sweep:
+
+| `max_long` | Median Sharpe | Median CAGR | Mean Max DD |
+|---:|---:|---:|---:|
+| 1.00 (default) | 2.15 | +156% | -21% |
+| 1.25 | 2.15 | +216% | -26% |
+| **1.50** | **2.16** | **+288%** | -30% |
+| 2.00 | 2.13 | +480% | -38% |
+
+Pass `--max-long 1.5` if you want ~1.85× the default return at the same
+Sharpe and a 9 pp larger drawdown. The default is left at 1.0 deliberately
+— it's a risk-tolerance call, not a methodology one.
 
 This document is the **forward-looking improvement plan**. It is divided into
 three tiers by effort. Each item explains what to build, why it matters, and
