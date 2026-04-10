@@ -3,7 +3,7 @@
 [![CI](https://github.com/jlgreen11/signals/actions/workflows/ci.yml/badge.svg)](https://github.com/jlgreen11/signals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-92%20passing-brightgreen.svg)](./tests)
+[![Tests](https://img.shields.io/badge/tests-140%2B%20passing-brightgreen.svg)](./tests)
 
 Markov-chain market signal generator with four swappable model backends,
 walk-forward backtesting, sized long/short execution, and a regime-routed
@@ -42,11 +42,13 @@ kind, express or implied**. See [`LICENSE`](./LICENSE).
 | `composite` | 1st-order discrete Markov chain over a 2D (return × volatility) state grid (default 3×3 = 9 states). The Phase-1 model — solid bear-defense. | Baseline |
 | `hmm` | Gaussian Hidden Markov Model (`hmmlearn`) over standardized continuous features. Hidden regimes discovered via Baum-Welch. | Research |
 | `homc` | Higher-order Markov chain over quantile-binned returns, inspired by Nascimento et al. (2022). Good bull participation on BTC. | Research |
-| **`hybrid`** | **Regime-routed ensemble of composite + HOMC. Default routing is vol-based: top 30% of training-vol days → composite (bear defense), rest → HOMC (bull participation). Also supports `hmm` and `blend` routing strategies.** | **BTC production default** |
+| **`hybrid`** | **Regime-routed ensemble of composite + HOMC. Default routing is vol-based: top 30% of training-vol days → composite, rest → HOMC. Also supports `hmm`, `blend`, and `adaptive_vol` routing strategies.** | **BTC production default** |
 | `trend` | Classic single-MA trend filter: long when close > MA(200), flat otherwise. Faber (2007). Tested on S&P — reduces drawdowns but doesn't beat B&H on Sharpe. | Research (S&P) |
 | `golden_cross` | Dual-MA crossover: long when MA(50) > MA(200). Smoother than `trend` but pays more lag. Tested on S&P — strictly worse than `trend`. | Research (S&P) |
+| `boost` | sklearn `GradientBoostingClassifier` predicting next-bar direction from engineered features (return lags, rolling vol, z-scores). Tier-3 experiment — 4.5× worse than H-Vol baseline on BTC. | Research |
+| `ensemble` | Weighted average of composite + HOMC + boost. Tier-3 experiment — dragged down by the boost component. | Research |
 
-All six implement a common interface (`fit`, `predict_state`, `predict_next`,
+All eight implement a common interface (`fit`, `predict_state`, `predict_next`,
 `state_returns_`, `label`, `save`/`load`) so the engine, signal generator,
 and CLI work with any of them transparently.
 
@@ -293,6 +295,7 @@ through multiple dead ends. Each tier has a pinned result doc.
 | **1S** | Can anything beat B&H on S&P 500? Tests classic trend filters (200-day MA, 50/200 golden cross) AND a HOMC memory-depth sweep (orders 1-9) with 4-seed robustness check. | **No.** Trend filters reduce drawdowns ~40% but cost ~40% of return. HOMC order=6 looked promising on seed 42 (median Sharpe 0.90 vs B&H 0.77) but failed 4-seed robustness (2/4 seeds beat B&H, 1 catastrophic miss at 0.23 vs 1.42). Buy & hold remains the S&P recommendation. | `scripts/SP500_TREND_AND_HOMC_MEMORY.md` |
 | **2** | Deep multi-dimensional BTC sweep: 1,616 backtests across 5 hyperparameter dimensions (HOMC order×states, composite grid/window/alpha, hybrid quantile×leverage, retrain frequency, buy/sell thresholds). All raw data saved to parquet. | **No parameter tweak robustly improves baseline.** Apparent seed-42 winners (sell_bps=-20 at 2.40 Sharpe vs 2.15 baseline) all failed 4-seed robustness. On average across seeds, the "winners" are actively worse than baseline (0.94 vs 1.00). **Production defaults are at a seed-robust plateau.** | `scripts/BTC_DEEP_SWEEP_RESULTS.md` |
 | **2p** | Multi-asset portfolio: BTC H-Vol hybrid + S&P B&H at various weights with daily or window rebalancing. Tests the "diversification lunch" hypothesis. | **Soft win.** 40/60 BTC/SP with daily rebalancing scored median Sharpe **2.44** at seed 42 and averaged **1.16** across 4 seeds — a +16% improvement over BTC-alone (1.00). Beats baseline on 3/4 seeds (loses at seed 100 where BTC landed on strong periods). First "genuine alpha" in the project that isn't from parameter tuning. | `scripts/BTC_SP500_PORTFOLIO_RESULTS.md` |
+| **3** | "Do all the improvements" — 8 improvement items from the synopsis. Adaptive vol quantile, long-horizon S&P trend filter, 40/60 portfolio productionized into CLI, paper-trade scaffold, VIX macro overlay, gradient boosting model, multi-strategy ensemble, Alpaca broker SDK (code only, no live). | **Parameter plateau → model-class plateau.** Nothing new beats H-Vol baseline across 4 seeds. Gradient boosting is 4.5× worse (0.22 avg Sharpe vs 1.00). VIX overlay cuts drawdowns in half but halves Sharpe. Adaptive quantile loses. Long-horizon S&P trend still ties B&H on Sharpe. But the portfolio combiner is now shipped as `signals backtest portfolio` CLI, paper-trade protocol exists as `signals paper-trade record/reconcile/report`, and the Alpaca SDK is ready for user-authorized live trading. | `scripts/TIER3_COMPREHENSIVE_RESULTS.md` |
 
 Earlier foundational work:
 

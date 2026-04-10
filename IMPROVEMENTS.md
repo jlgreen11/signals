@@ -681,7 +681,68 @@ analysis script. A production-quality `PortfolioCombiner` class,
 CLI command, and signal-next portfolio workflow are tracked as
 follow-up item #20 below.
 
-### 20. Ship portfolio combiner as production code — **NEW**
+### 20. Ship portfolio combiner as production code — **[x] DONE 2026-04-11**
+
+Shipped in Tier 3 Phase B. `signals/backtest/portfolio_blend.py` with
+`PortfolioAllocation`, `PortfolioCombiner`, `run_portfolio_backtest`,
+and `default_btc_sp_allocation`. CLI command:
+`signals backtest portfolio BTC-USD:0.4:hybrid ^GSPC:0.6:bh
+--rebalance daily`. 13 tests. See `scripts/TIER3_COMPREHENSIVE_RESULTS.md`.
+
+### 20a. Paper-trading protocol — **[x] DONE 2026-04-11 (scaffold only)**
+
+`signals/broker/paper_trade_log.py` + `signals paper-trade
+record/reconcile/report` CLI. 8 tests. The 30-day runtime is the
+user's job.
+
+### 20b. Alpaca broker SDK (code, not live execution) — **[x] DONE 2026-04-11**
+
+`signals/broker/alpaca.py` with explicit dry-run gating. Default
+`live=False`. Live mode requires `ALPACA_API_KEY` and
+`ALPACA_SECRET_KEY` env vars and `live=True` opt-in. Lazily imports
+alpaca-py. 10 tests (all dry-run). Will never place real orders in
+an automated session.
+
+### 20c. Adaptive vol quantile — **[x] DONE 2026-04-11 — LOST ROBUSTNESS**
+
+`hybrid_routing_strategy="adaptive_vol"` ships as a 4th option in
+HybridRegimeModel. Uses recent vs training-median vol to switch
+between low and high quantile thresholds. All 5 tested configs
+lost to the fixed q=0.70 baseline across 4 seeds. Confirms the
+parameter plateau is genuine — regime-dependence doesn't help.
+
+### 20d. Gradient boosting model — **[x] DONE 2026-04-11 — LOST ROBUSTNESS**
+
+`signals/model/boost.py` with `GradientBoostingModel`. Best config
+averages 0.22 Sharpe across 4 seeds vs baseline's 1.00. Massive gap.
+The engineered feature set (return lags, rolling stats) extracts
+no useful signal. Code path shipped for future experiments with
+better features or different ML libraries.
+
+### 20e. Multi-strategy ensemble — **[x] DONE 2026-04-11 (code only)**
+
+`signals/model/ensemble.py` — weighted average of composite + HOMC
++ boost. Since boost averages 0.22 Sharpe and the other two average
+~1.00, the equal-weighted ensemble is dragged down toward 0.74.
+Code path shipped for future experiments with better components
+or learned weights.
+
+### 20f. Long-horizon S&P trend eval — **[x] DONE 2026-04-11 — SAME VERDICT**
+
+24-month random-window eval on ^GSPC tested whether trend filters
+work at longer horizons. Result: Trend(200) averages 0.70 Sharpe vs
+B&H 0.71 across 4 seeds (basically tied). Still reduces drawdowns
+(-15.9% vs -21.4%) but the Sharpe penalty persists at any horizon.
+
+### 20g. VIX macro overlay on BTC — **[x] DONE 2026-04-11 — RISK REDUCER ONLY**
+
+`scripts/btc_macro_vix_overlay.py` tested whether forcing BTC to
+flat when VIX > training 75th percentile improves risk-adjusted
+returns. Result: halves drawdowns (-24% → -14%) but halves Sharpe
+too (1.00 → 0.44). Same pattern as trend filters. Cross-asset
+macro signal doesn't transfer to BTC usefully.
+
+### 21. (Old #20) Ship portfolio combiner as production code — SUPERSEDED
 
 **What**: Promote the research portfolio combiner from
 `scripts/btc_sp500_portfolio.py` into `signals/backtest/portfolio_blend.py`
