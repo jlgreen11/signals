@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 
@@ -55,12 +55,12 @@ class DataPipeline:
         last = self.store.last_timestamp(symbol, interval)
         if last is None:
             log.info("refresh %s: no existing data, fetching last 5 years", symbol)
-            start = datetime.now(tz=timezone.utc) - timedelta(days=365 * 5)
+            start = datetime.now(tz=UTC) - timedelta(days=365 * 5)
             return self.fetch(symbol, start=start, interval=interval)
 
         # Start fetching from the bar after the last stored one.
         start = (last + timedelta(days=1)).to_pydatetime()
-        if start >= datetime.now(tz=timezone.utc):
+        if start >= datetime.now(tz=UTC):
             log.info("refresh %s: already up-to-date (last=%s)", symbol, last)
             return self.store.load(symbol, interval)
         return self.fetch(symbol, start=start, interval=interval)

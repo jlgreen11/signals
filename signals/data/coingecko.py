@@ -8,7 +8,7 @@ This is sufficient for return-based features but not high-fidelity OHLC.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
 import requests
@@ -42,7 +42,7 @@ class CoinGeckoSource(DataSource):
             raise NotImplementedError("CoinGeckoSource only supports interval='1d' today.")
 
         start_ts = _to_unix(start) if start else 0
-        end_ts = _to_unix(end) if end else int(datetime.now(tz=timezone.utc).timestamp())
+        end_ts = _to_unix(end) if end else int(datetime.now(tz=UTC).timestamp())
 
         url = f"{self.BASE}/coins/{coin_id}/market_chart/range"
         params = {"vs_currency": "usd", "from": start_ts, "to": end_ts}
@@ -74,5 +74,5 @@ def _to_unix(value: datetime | str) -> int:
     if isinstance(value, str):
         value = pd.to_datetime(value, utc=True).to_pydatetime()
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
+        value = value.replace(tzinfo=UTC)
     return int(value.timestamp())

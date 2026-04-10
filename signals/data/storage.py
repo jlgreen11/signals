@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterator
 
 import pandas as pd
 
@@ -148,7 +148,7 @@ class DataStore:
                     rows_added,
                     first_ts.isoformat() if first_ts is not None else None,
                     last_ts.isoformat() if last_ts is not None else None,
-                    datetime.now(tz=timezone.utc).isoformat(),
+                    datetime.now(tz=UTC).isoformat(),
                 ),
             )
 
@@ -195,7 +195,7 @@ class DataStore:
                     float(confidence),
                     int(state),
                     float(expected_return),
-                    datetime.now(tz=timezone.utc).isoformat(),
+                    datetime.now(tz=UTC).isoformat(),
                 ),
             )
 
@@ -221,7 +221,7 @@ class DataStore:
         with self._connect() as conn:
             cur = conn.execute(
                 f"INSERT INTO backtest_runs ({cols}, created_at) VALUES ({placeholders}, ?)",
-                (*row.values(), datetime.now(tz=timezone.utc).isoformat()),
+                (*row.values(), datetime.now(tz=UTC).isoformat()),
             )
             return int(cur.lastrowid or 0)
 
