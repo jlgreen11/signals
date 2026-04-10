@@ -37,7 +37,7 @@ app.add_typer(backtest_app, name="backtest")
 
 console = Console()
 
-VALID_MODELS = {"composite", "hmm", "homc", "hybrid"}
+VALID_MODELS = {"composite", "hmm", "homc", "hybrid", "trend", "golden_cross"}
 
 
 def _store() -> DataStore:

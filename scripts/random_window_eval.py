@@ -39,7 +39,6 @@ from signals.backtest.portfolio import Portfolio
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
-
 SYMBOLS = [
     ("BTC-USD", pd.Timestamp("2015-01-01", tz="UTC"), pd.Timestamp("2024-12-31", tz="UTC")),
     ("^GSPC",   pd.Timestamp("2015-01-01", tz="UTC"), pd.Timestamp("2024-12-31", tz="UTC")),
@@ -350,7 +349,7 @@ def _print_aggregate(df: pd.DataFrame, symbol: str) -> None:
     print(f"HOMC    beats Buy & Hold: {h2h('homc','bh')}/{total}")
     print(f"Composite beats B&H     : {h2h('composite','bh')}/{total}")
     print()
-    print(f"Positive CAGR:")
+    print("Positive CAGR:")
     for label, col in [
         ("  Composite", "composite_cagr"),
         ("  HOMC     ", "homc_cagr"),

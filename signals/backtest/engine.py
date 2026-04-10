@@ -31,6 +31,7 @@ from signals.model.hmm import HiddenMarkovModel
 from signals.model.homc import HigherOrderMarkovChain
 from signals.model.hybrid import DEFAULT_ROUTING, HybridRegimeModel
 from signals.model.signals import SignalGenerator
+from signals.model.trend import DualMovingAverage, TrendFilter
 from signals.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -38,7 +39,7 @@ log = get_logger(__name__)
 
 @dataclass
 class BacktestConfig:
-    model_type: str = "composite"     # "composite" | "hmm" | "homc" | "hybrid"
+    model_type: str = "composite"     # "composite" | "hmm" | "homc" | "hybrid" | "trend" | "golden_cross"
     train_window: int = 252
     retrain_freq: int = 21
     n_states: int = 9                 # composite: ignored (uses return_bins×vol_bins); homc/hmm: used
@@ -71,6 +72,10 @@ class BacktestConfig:
     hybrid_vol_quantile: float = 0.70
     hybrid_blend_low: float = 0.50         # blend ramp lower quantile
     hybrid_blend_high: float = 0.85        # blend ramp upper quantile
+    # Trend-filter models (for equity indices — see signals/model/trend.py):
+    trend_window: int = 200                # single-MA trend filter window
+    trend_fast_window: int = 50            # dual-MA fast window
+    trend_slow_window: int = 200           # dual-MA slow window
     initial_cash: float = 10_000.0
     commission_bps: float = 5.0
     slippage_bps: float = 5.0
@@ -153,6 +158,13 @@ class BacktestEngine:
                 order=cfg.order,
                 alpha=cfg.laplace_alpha,
             )
+        if cfg.model_type == "trend":
+            return TrendFilter(window=cfg.trend_window)
+        if cfg.model_type == "golden_cross":
+            return DualMovingAverage(
+                fast_window=cfg.trend_fast_window,
+                slow_window=cfg.trend_slow_window,
+            )
         if cfg.model_type == "hybrid":
             return HybridRegimeModel(
                 regime_n_states=3,
@@ -189,6 +201,10 @@ class BacktestEngine:
             # dispatch internally. Pass a neutral default that matches its
             # signature; unused kwargs are ignored by the hybrid.
             return {"feature_col": "return_1d", "return_col": "return_1d"}
+        if self.config.model_type in ("trend", "golden_cross"):
+            # Trend models fit() is a no-op that only reads the "close"
+            # column. They accept and ignore any additional kwargs.
+            return {}
         return {"feature_col": "return_1d", "return_col": "return_1d"}
 
     # ----- Run -----

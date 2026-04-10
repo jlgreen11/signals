@@ -619,30 +619,66 @@ ETH and SOL deprioritized. Production scope is BTC + ^GSPC only.
 Historical context preserved in `HOMC_TIER0B_COMPREHENSIVE.md` and
 `HOMC_TIER0C_HYBRID_RESULTS.md`.
 
-### 17a. (New) Model class for S&P 500
+### 17a. Model class for S&P 500 — **[partially x] DONE 2026-04-11 — CANDIDATES TESTED, NONE WORK**
 
-**What**: The signals project's Markov-chain models are the wrong tool
-for a secular-uptrend equity index. No strategy in the project (including
-the hybrid) beats S&P 500 buy & hold over 16 random windows. The
-recommended action is to hold SPY, not trade it. But if an active S&P
-strategy is a real priority, the model class to investigate is NOT
-Markov chains.
+Tested two candidates from the original list:
 
-**Candidates to explore**:
-1. **200-day moving average crossover** — classic trend-following. Long
-   when above the MA, flat when below. Captures 70-80% of B&H return
-   with ~60% of the drawdown historically.
-2. **Cross-sectional momentum** (12-1 month). Requires multiple assets
-   (S&P + bond index + gold + something else) and rotates into the
-   strongest trailing performer. Standard quant equity approach.
-3. **Volatility targeting** — leverage up in low-vol regimes, de-lever
-   in high-vol regimes. Targets a constant portfolio vol.
-4. **ML-based regime detection on macro features** (yield curve slope,
-   credit spreads, VIX level) instead of on price-only features.
+1. **200-day MA trend filter** (`TrendFilter`) — median Sharpe 0.57 vs
+   B&H 0.77. Reduces drawdowns as expected (-9.4% vs -15.3% mean MDD,
+   best drawdown profile of any strategy) but pays too much in return
+   to compensate. Not worse than B&H catastrophically, just worse.
+2. **50/200 golden cross** (`DualMovingAverage`) — median Sharpe 0.54,
+   strictly worse than the simple 200-day rule on S&P. The double-MA
+   lag compounds during whipsaws. Kill.
 
-These are different research problems from the Markov-chain backbone
-of signals. They'd likely live in a new `signals/model/equity/`
-subpackage. Not on the roadmap until S&P is a real priority.
+ALSO ran a HOMC memory-depth sweep (orders 1-9) on S&P to complete the
+picture of Markov-chain behavior at each memory depth:
+
+- Orders 1, 7, 8, 9 produce zero trades (order=1 too crude, 7-9 hit
+  the sparsity wall — at order=9 only 0.05% of possible k-tuples are
+  observed in training)
+- Orders 2-6 are the "sweet spot" with actual signals
+- Order=6 at seed 42 beat B&H with median Sharpe 0.90 (vs B&H 0.77)
+- **But a 4-seed robustness check killed that result**: order=6 beats
+  B&H on 2/4 seeds and catastrophically loses on 1/4 (seed 7: 0.23 vs
+  B&H 1.42). Data-mining artifact.
+
+**Final verdict**: no strategy in the current model class beats B&H on
+S&P 500 robustly. S&P recommendation remains "hold SPY".
+
+Full analysis: `scripts/SP500_TREND_AND_HOMC_MEMORY.md`.
+
+**Remaining candidates** for a genuine S&P strategy (none implemented):
+1. **Multi-asset portfolio** (new #19 below — highest priority)
+2. **Long-horizon trend filters** (24-month windows instead of 6)
+3. **Macro-feature regime detection** (VIX, yield curve, credit spreads)
+4. **Factor rotation** (SPY + GLD + TLT + cash, 12-1 momentum)
+
+### 19. Multi-asset portfolio construction — **NEW TOP PRIORITY for S&P**
+
+**What**: Construct a 2-asset (or 3-asset) portfolio where BTC uses the
+H-Vol hybrid (median Sharpe 2.15) and SPX uses buy & hold (median
+Sharpe 0.77). Allocate between them via risk parity, min-vol, or a
+simple fixed weight. The cross-asset correlation is low, so the
+portfolio Sharpe may exceed both individual Sharpes.
+
+**Why it matters**: This is the FIRST candidate for beating B&H on S&P
+that doesn't require new model classes. It uses what's already built.
+If BTC/SPX correlation is ~0.2 (typical historical value), a 60/40 SPX/
+BTC portfolio could produce a portfolio Sharpe meaningfully above
+B&H's 0.77 even before the BTC component is optimized.
+
+**How to validate**: Compute the 16-window random-eval Sharpe of a
+weighted portfolio (weights fixed, or risk-parity) using the existing
+BTC and SPX result series. No new model fitting required — just
+linear combinations of existing equity curves.
+
+**Cost**: ~1 hour to write the portfolio combiner + analysis script.
+No new tests needed (portfolio math is straightforward linear
+algebra).
+
+**Where**: New `signals/backtest/portfolio_blend.py` helper +
+`scripts/btc_sp500_portfolio.py` analysis script.
 
 ### 18. Continuous blending hybrid — **[x] DONE 2026-04-11**
 

@@ -33,7 +33,6 @@ from signals.backtest.metrics import Metrics, compute_metrics
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
-
 SYMBOLS = [
     ("BTC-USD", pd.Timestamp("2015-01-01", tz="UTC"), pd.Timestamp("2024-12-31", tz="UTC")),
     ("^GSPC",   pd.Timestamp("2015-01-01", tz="UTC"), pd.Timestamp("2024-12-31", tz="UTC")),

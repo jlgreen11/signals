@@ -3,7 +3,7 @@
 [![CI](https://github.com/jlgreen11/signals/actions/workflows/ci.yml/badge.svg)](https://github.com/jlgreen11/signals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-76%20passing-brightgreen.svg)](./tests)
+[![Tests](https://img.shields.io/badge/tests-92%20passing-brightgreen.svg)](./tests)
 
 Markov-chain market signal generator with four swappable model backends,
 walk-forward backtesting, sized long/short execution, and a regime-routed
@@ -42,9 +42,11 @@ kind, express or implied**. See [`LICENSE`](./LICENSE).
 | `composite` | 1st-order discrete Markov chain over a 2D (return × volatility) state grid (default 3×3 = 9 states). The Phase-1 model — solid bear-defense. | Baseline |
 | `hmm` | Gaussian Hidden Markov Model (`hmmlearn`) over standardized continuous features. Hidden regimes discovered via Baum-Welch. | Research |
 | `homc` | Higher-order Markov chain over quantile-binned returns, inspired by Nascimento et al. (2022). Good bull participation on BTC. | Research |
-| **`hybrid`** | **Regime-routed ensemble of composite + HOMC. Default routing is vol-based: top 30% of training-vol days → composite (bear defense), rest → HOMC (bull participation). Also supports `hmm` and `blend` routing strategies.** | **Production default** |
+| **`hybrid`** | **Regime-routed ensemble of composite + HOMC. Default routing is vol-based: top 30% of training-vol days → composite (bear defense), rest → HOMC (bull participation). Also supports `hmm` and `blend` routing strategies.** | **BTC production default** |
+| `trend` | Classic single-MA trend filter: long when close > MA(200), flat otherwise. Faber (2007). Tested on S&P — reduces drawdowns but doesn't beat B&H on Sharpe. | Research (S&P) |
+| `golden_cross` | Dual-MA crossover: long when MA(50) > MA(200). Smoother than `trend` but pays more lag. Tested on S&P — strictly worse than `trend`. | Research (S&P) |
 
-All four implement a common interface (`fit`, `predict_state`, `predict_next`,
+All six implement a common interface (`fit`, `predict_state`, `predict_next`,
 `state_returns_`, `label`, `save`/`load`) so the engine, signal generator,
 and CLI work with any of them transparently.
 
@@ -69,19 +71,41 @@ the median but ~0.08 Sharpe behind on the best-case pair. See
 
 ## Headline result — ^GSPC, 16 random 6-month windows, seed 42
 
-| Metric | **B&H** | Composite | HOMC | H-Vol | H-Blend |
-|---|---:|---:|---:|---:|---:|
-| Mean Sharpe | **1.07** | 0.70 | 1.04 | 0.46 | 0.34 |
-| **Median Sharpe** | **0.77** | 0.49 | 0.66 | -0.03 | -0.40 |
-| Median CAGR | **+12.2%** | +4.2% | +8.3% | -1.2% | -5.4% |
-| Mean CAGR | **+14.0%** | +4.0% | +15.0% | 0.0% | -1.3% |
-| Positive CAGR | — | 8/16 | 12/16 | 8/16 | 6/16 |
+| Metric | **B&H** | Composite | HOMC@5 | H-Vol | H-Blend | Trend(200) | GCross(50,200) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Mean Sharpe | **1.07** | 0.70 | 1.04 | 0.46 | 0.34 | 0.60 | 0.85 |
+| **Median Sharpe** | **0.77** | 0.49 | 0.66 | -0.03 | -0.40 | 0.57 | 0.54 |
+| Median CAGR | **+12.2%** | +4.2% | +8.3% | -1.2% | -5.4% | +6.2% | +6.6% |
+| Mean Max DD | -15.3% | -14.5% | -14.5% | -15.3% | -15.0% | **-9.4%** | -14.3% |
+| Positive CAGR | — | 8/16 | 12/16 | 8/16 | 6/16 | — | — |
 
-**Nothing beats buy & hold on S&P 500.** Every active strategy subtracts alpha
-on the median. Tuning the hybrid's `vol_quantile` over {0.50, 0.60, ..., 0.90}
-doesn't rescue it — see `scripts/HOMC_TIER0E_BTC_SP500.md`.
+**Nothing beats buy & hold on S&P 500.** This has been tested four ways:
+
+1. **Markov chains** (composite, HOMC, H-Vol, H-Blend) — all lose. Tier 0e.
+2. **Vol quantile tuning** on the hybrid — no quantile rescues it. Tier 0e.
+3. **Classic trend filters** (200-day MA, 50/200 golden cross) — reduce
+   drawdowns as expected but give up too much return to compensate. Tier 1S.
+4. **HOMC memory depth sweep** (orders 1–9) — one apparent winner at
+   order=6 (seed 42, median Sharpe 0.90) failed a 4-seed robustness check:
+   it beat B&H on 2/4 seeds and catastrophically underperformed on 1/4
+   (seed 7: 0.23 vs B&H 1.42). Data-mining artifact. Tier 1S.
+
+Full S&P analysis (Markov + trend + memory sweep + robustness) is in
+`scripts/SP500_TREND_AND_HOMC_MEMORY.md`. Tier-0e analysis is in
+`scripts/HOMC_TIER0E_BTC_SP500.md`.
 
 **Recommendation**: hold SPY (or equivalent) directly. Don't run signals on S&P.
+
+Why does S&P resist all the strategies in this project? The Markov
+backbone assumes the underlying process has meaningfully distinct
+regimes to detect. S&P has rare sharp drawdowns but spends most of its
+time in a single slow-uptrend regime with nothing to detect. Trend
+filters work as advertised (lower drawdowns, ~40% return cost) but the
+tradeoff doesn't improve Sharpe on 6-month windows. A genuine S&P
+strategy needs model classes that don't exist in this project yet —
+see `SP500_TREND_AND_HOMC_MEMORY.md` "What's next for S&P" for
+candidates (multi-asset portfolio construction, macro-feature regime
+models, factor rotation).
 
 ## Leverage note (BTC)
 
@@ -233,7 +257,7 @@ signals/
 pytest --cov=signals
 ```
 
-**76 tests** across:
+**92 tests** across:
 
 - `test_lookahead.py` — strict no-lookahead regression. Asserts equity
   curves up to bar N are bit-identical regardless of how much future data
@@ -242,6 +266,9 @@ pytest --cov=signals
 - `test_hybrid.py` — 17 tests for the hybrid: fit/predict round-trip,
   routing validation, both `vol` and `blend` strategies, lookahead
   regression, save/load.
+- `test_trend.py` — 16 tests for TrendFilter and DualMovingAverage:
+  fit/predict, above/below-MA detection, lookahead regression on both
+  models, engine integration.
 - `test_backtest.py`, `test_holdout.py` — engine, portfolio, metrics,
   deflated Sharpe, risk-free rate.
 - `test_composite.py`, `test_hmm.py`, `test_homc.py`, `test_signals.py`,
@@ -263,6 +290,7 @@ through multiple dead ends. Each tier has a pinned result doc.
 | **0c** | Can a regime-routed hybrid combine composite's bear defense with HOMC's bull participation? | **Yes — with vol-based routing, not HMM.** HMM routing whipsaws on ambiguous regimes (median Sharpe 0.37 — worse than any single model). Vol-based routing produces median Sharpe 1.92 — the first model to beat both singles. | `scripts/HOMC_TIER0C_HYBRID_RESULTS.md` |
 | **0e** | Tune `hybrid_vol_quantile`, add continuous blending, add S&P 500. | BTC optimum is q=**0.70** (not 0.75) — median Sharpe **2.15**. Continuous blend at default ramp scores 2.06. **S&P 500 finding: no strategy beats B&H.** | `scripts/HOMC_TIER0E_BTC_SP500.md` |
 | **0f** | Tune sizing and blend ramp parameters. | **Sharpe plateau at 2.15.** `target_scale_bps` is inert (magnitude saturates at max_long). `max_long` is a clean risk/return dial but not a Sharpe lever. Best blend pair (0.40, 0.90) scores 2.07 — loses to hard switch. | `scripts/HOMC_TIER0F_SIZING_BLEND.md` |
+| **1S** | Can anything beat B&H on S&P 500? Tests classic trend filters (200-day MA, 50/200 golden cross) AND a HOMC memory-depth sweep (orders 1-9) with 4-seed robustness check. | **No.** Trend filters reduce drawdowns ~40% but cost ~40% of return. HOMC order=6 looked promising on seed 42 (median Sharpe 0.90 vs B&H 0.77) but failed 4-seed robustness (2/4 seeds beat B&H, 1 catastrophic miss at 0.23 vs 1.42). Buy & hold remains the S&P recommendation. | `scripts/SP500_TREND_AND_HOMC_MEMORY.md` |
 
 Earlier foundational work:
 
