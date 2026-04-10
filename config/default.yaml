@@ -1,0 +1,24 @@
+# Default configuration for the Signals package.
+# Override via environment variables (SIGNALS_*) or by passing a custom YAML.
+
+data:
+  dir: ./data
+  default_interval: 1d
+
+model:
+  states: 9                # 3x3 composite (return × volatility) bins
+  return_bins: 3
+  volatility_bins: 3
+  window: 252              # rolling fit window in bars
+  laplace_alpha: 1.0       # smoothing for transition counts
+
+signal:
+  buy_threshold_bps: 20    # +20 bps expected next-period return → BUY
+  sell_threshold_bps: -20  # -20 bps → SELL
+
+backtest:
+  initial_cash: 10000.0
+  commission_bps: 5.0
+  slippage_bps: 5.0
+  retrain_freq: 21         # retrain Markov chain every N bars
+  train_window: 252        # bars used in each fit
