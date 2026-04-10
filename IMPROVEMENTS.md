@@ -87,24 +87,78 @@ structure visible from a clean holdout against a controlled baseline.
 The right rule is "DSR is the bar for the in-sample result; out-of-sample
 validation against a control is the bar for the strategy."
 
-### 0b. Confirmatory experiments before HOMC verdict
+### 0b. Confirmatory experiments — **[x] DONE 2026-04-10 — REGIME-BIASED**
 
-These come ahead of any new code work, in this order of evidence-per-cost:
+All four experiments run. Full writeup at
+`scripts/HOMC_TIER0B_COMPREHENSIVE.md`. Headline:
 
-1. **Slide the holdout to 30%** (`--holdout-frac 0.3`). Adds the late-2022
-   bear into the test set. If holdout Sharpe stays > 1, the result
-   generalizes beyond a single bull window.
-2. **Add HOMC to the random-window evaluation.** Modify
-   `scripts/random_window_eval.py` to include HOMC@order=5/window=1000
-   alongside composite. If HOMC beats composite in > 9/16 random windows,
-   it's a real upgrade. If it ties or loses, the in-sample weakness
-   dominates.
-3. **Multi-asset.** Same sweep on ETH-USD and SOL-USD. If the holdout
-   strength holds on a second asset, the HOMC structure is general; if
-   not, BTC-2023-2024 is unique.
-4. **Lower-order controls.** Same sweep at order=3 and order=4. If the
-   holdout strength persists at lower orders, it comes from the wider
-   window not the higher memory.
+| # | Experiment | Result |
+|---|---|---|
+| 1 | 30% holdout on BTC | Sharpe **1.76 → 0.48** (73% collapse) — bull cherry-picked |
+| 2 | Random-window eval (16 windows) | HOMC wins **11/16** on both CAGR and Sharpe; mean Sharpe 1.39 vs composite 1.10; median 1.83 vs 1.44 |
+| 3 | ETH holdout | HOMC 0.18 vs composite 0.39 (HOMC loses) |
+| 3 | SOL holdout | HOMC 1.45 vs composite 1.11; in-sample **DSR 0.70** (first non-zero in project) |
+| 4 | Lower-order BTC | Monotonic: order 3 → 0.63, order 4 → 1.19, order 5 → 1.76 on bull holdout |
+
+**Verdict**: HOMC is a bull-regime specialist, not a universal alpha.
+Composite is the opposite (bear-resistant, bull-conservative). They are
+complementary, not competitors. Both models fail on ETH specifically.
+
+**What does not change**: composite-3×3 stays as the production default
+because a single-model default must handle both regimes and composite's
+bear defense is the critical safety feature.
+
+**What does change** — priorities flip:
+
+1. **Tier-3 #13 (Hybrid model) is promoted to top priority.** Strongest
+   evidence now that a regime-router (HMM → "bull or bear?" → pick
+   HOMC/composite accordingly) should beat any single model across all
+   windows. This was "nice to have" before; it is now the single
+   highest-value experiment.
+2. **Tier-1 #1 (AbsoluteGranularityEncoder) is deprioritized.** The
+   paper-style granularity sweep is less interesting now that the
+   quantile encoder already produces a winning HOMC at the right
+   operating point. Marginal improvement on an already-measurable edge.
+3. **Tier-1 #5/#6 (aggressive sizing + cap removal) remain high
+   priority.** They compound with both models and are the cheapest
+   improvements on the list.
+4. **Tier-1 #7 (multi-asset suite) becomes more valuable** — now we have
+   a real reason to segment assets by regime profile. SOL clearly fits
+   HOMC; ETH clearly fits composite; BTC is mixed.
+
+**New experiment added to the list**:
+- **0c**: 30% holdout on BTC at order=3 and order=4 (we have order=5 but
+  not the lower orders under bear stress). If order=3 is more
+  bear-robust, HOMC@order=3/window=1000 becomes the sturdier default for
+  bull-biased single-model use, and we've found the real order-vs-
+  robustness tradeoff surface.
+
+### 0c. (Next) 30% holdout for lower-order HOMC
+
+```bash
+# Order 3
+signals backtest sweep BTC-USD --model homc \
+  --start 2015-01-01 --end 2024-12-31 \
+  --states 5 --order 3 --train-window 1000 \
+  --buy-grid "10,15,20,25,30" --sell-grid "-10,-15,-20,-25,-30" \
+  --stop-grid "0" --no-short --rank-by sharpe --top 10 \
+  --holdout-frac 0.3
+
+# Order 4
+signals backtest sweep BTC-USD --model homc \
+  --start 2015-01-01 --end 2024-12-31 \
+  --states 5 --order 4 --train-window 1000 \
+  --buy-grid "10,15,20,25,30" --sell-grid "-10,-15,-20,-25,-30" \
+  --stop-grid "0" --no-short --rank-by sharpe --top 10 \
+  --holdout-frac 0.3
+```
+
+**Decision rule**:
+- If order=3 holdout Sharpe ≥ 0.7 (vs order=5's 0.48) under 30% holdout,
+  order=3 is the more robust operating point and should be the single-
+  model HOMC default.
+- If order=3 also collapses to ~0.5, the HOMC fragility is inherent to
+  the model class and only the hybrid approach (Tier-3 #13) resolves it.
 
 ---
 

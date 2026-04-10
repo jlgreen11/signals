@@ -1,4 +1,4 @@
-"""Evaluate the composite strategy on 16 random 6-month BTC windows
+"""Evaluate the composite and HOMC strategies on 16 random 6-month BTC windows
 against buy & hold and a perfect-foresight oracle.
 
 The oracle is the theoretical ceiling on what any daily-rebalanced strategy
@@ -9,9 +9,12 @@ direction to choose its position. Two variants:
   oracle (long/flat) — long when next bar will close higher than its open
   oracle (long/short) — same, but goes short when next bar will close lower
 
-The "capture ratio" is what fraction of the oracle's CAGR the composite
-strategy picks up. 100% would mean perfect direction prediction; 0% means
-no edge over flat.
+The "capture ratio" is what fraction of the oracle's CAGR the strategy picks
+up. 100% would mean perfect direction prediction; 0% means no edge over flat.
+
+Two strategies are evaluated on the SAME random windows for direct comparison:
+  composite-3×3 with train_window=252 (production default)
+  HOMC@order=5 with train_window=1000 (the surprise Tier-0a candidate)
 """
 
 from __future__ import annotations
@@ -69,30 +72,61 @@ def run_perfect_oracle(
     return p
 
 
+def _run_strategy_on_window(
+    cfg: BacktestConfig,
+    prices: pd.DataFrame,
+    start_i: int,
+    end_i: int,
+    symbol: str,
+):
+    """Run the engine on a warmup + eval slice, return rebased equity metrics."""
+    warmup_pad = 5
+    slice_start = start_i - cfg.train_window - cfg.vol_window - warmup_pad
+    if slice_start < 0:
+        slice_start = 0
+    engine_input = prices.iloc[slice_start:end_i]
+    eval_start_ts = prices.index[start_i]
+
+    try:
+        result = BacktestEngine(cfg).run(engine_input, symbol=symbol)
+    except Exception as e:
+        print(f"  [{cfg.model_type}] engine error: {e}")
+        return compute_metrics(pd.Series(dtype=float), [])
+
+    eq = result.equity_curve.loc[result.equity_curve.index >= eval_start_ts]
+    if eq.empty or eq.iloc[0] <= 0:
+        return compute_metrics(pd.Series(dtype=float), [])
+    eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
+    return compute_metrics(eq_rebased, [])
+
+
 def main() -> None:
     store = DataStore(SETTINGS.data.dir)
     prices = store.load("BTC-USD", "1d").sort_index()
+    # Pull a wider range so HOMC's 1000-bar training window has enough data.
     prices = prices.loc[
-        (prices.index >= pd.Timestamp("2018-01-01", tz="UTC"))
+        (prices.index >= pd.Timestamp("2015-01-01", tz="UTC"))
         & (prices.index <= pd.Timestamp("2024-12-31", tz="UTC"))
     ]
     print(f"BTC-USD bars: {len(prices)}  ({prices.index[0].date()} → {prices.index[-1].date()})")
 
-    train_window = 252
     vol_window = 10
     six_months = 126  # ~6 trading months
     warmup_pad = 5
 
-    # Need: train_window valid features before the eval window starts.
-    min_start = train_window + vol_window + warmup_pad
+    # HOMC needs 1000 training bars; that's the binding constraint. Use the
+    # same min_start for both models so they sample the same 16 windows.
+    homc_train_window = 1000
+    composite_train_window = 252
+    min_start = homc_train_window + vol_window + warmup_pad
     max_start = len(prices) - six_months - 1
 
     rng = random.Random(42)
     starts = sorted(rng.sample(range(min_start, max_start), 16))
 
-    cfg = BacktestConfig(
+    composite_cfg = BacktestConfig(
         model_type="composite",
-        train_window=train_window,
+        train_window=composite_train_window,
         retrain_freq=21,
         return_bins=3,
         volatility_bins=3,
@@ -100,50 +134,52 @@ def main() -> None:
         laplace_alpha=0.01,
     )
 
+    homc_cfg = BacktestConfig(
+        model_type="homc",
+        train_window=homc_train_window,
+        retrain_freq=21,
+        n_states=5,
+        order=5,
+        vol_window=vol_window,
+        laplace_alpha=1.0,
+    )
+
     rows: list[dict] = []
-    for start_i in starts:
+    for i, start_i in enumerate(starts, start=1):
         end_i = start_i + six_months
-        slice_start = start_i - train_window - vol_window - warmup_pad
-        engine_input = prices.iloc[slice_start:end_i]
         eval_window = prices.iloc[start_i:end_i]
-        eval_start_ts = eval_window.index[0]
 
-        # Composite strategy: run engine on the warmup + eval window, then
-        # trim and rebase the equity curve to the eval window only.
-        result = BacktestEngine(cfg).run(engine_input, symbol="BTC-USD")
-        eq = result.equity_curve.loc[result.equity_curve.index >= eval_start_ts]
-        if not eq.empty:
-            eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
-            m_strat = compute_metrics(eq_rebased, [])
-        else:
-            m_strat = compute_metrics(pd.Series(dtype=float), [])
+        print(f"  window {i}/16: {eval_window.index[0].date()} → {eval_window.index[-1].date()}")
 
-        # Perfect oracle long/flat
+        m_composite = _run_strategy_on_window(
+            composite_cfg, prices, start_i, end_i, "BTC-USD"
+        )
+        m_homc = _run_strategy_on_window(
+            homc_cfg, prices, start_i, end_i, "BTC-USD"
+        )
+
+        # Perfect oracle long/flat on the same eval window
         p_oracle = run_perfect_oracle(eval_window, allow_short=False)
         m_oracle = compute_metrics(p_oracle.equity_series(), p_oracle.trades)
 
-        # Perfect oracle long/short
-        p_oracle_ls = run_perfect_oracle(eval_window, allow_short=True)
-        m_oracle_ls = compute_metrics(p_oracle_ls.equity_series(), p_oracle_ls.trades)
-
         # Buy & hold
-        bh_eq = (eval_window["close"] / eval_window["close"].iloc[0]) * cfg.initial_cash
+        bh_eq = (eval_window["close"] / eval_window["close"].iloc[0]) * composite_cfg.initial_cash
         m_bh = compute_metrics(bh_eq, [])
 
         rows.append({
             "start": eval_window.index[0].date(),
             "end": eval_window.index[-1].date(),
             "bh_cagr": m_bh.cagr,
-            "strat_cagr": m_strat.cagr,
+            "comp_cagr": m_composite.cagr,
+            "homc_cagr": m_homc.cagr,
             "oracle_cagr": m_oracle.cagr,
-            "oracle_ls_cagr": m_oracle_ls.cagr,
             "bh_sharpe": m_bh.sharpe,
-            "strat_sharpe": m_strat.sharpe,
+            "comp_sharpe": m_composite.sharpe,
+            "homc_sharpe": m_homc.sharpe,
             "oracle_sharpe": m_oracle.sharpe,
-            "oracle_ls_sharpe": m_oracle_ls.sharpe,
             "bh_mdd": m_bh.max_drawdown,
-            "strat_mdd": m_strat.max_drawdown,
-            "oracle_mdd": m_oracle.max_drawdown,
+            "comp_mdd": m_composite.max_drawdown,
+            "homc_mdd": m_homc.max_drawdown,
         })
 
     df = pd.DataFrame(rows)
@@ -156,25 +192,19 @@ def main() -> None:
 
     print()
     print("=" * 120)
-    print("Per-window results (CAGR / Sharpe)")
+    print("Per-window results: BTC-USD, 16 random 6-month windows, seed 42")
     print("=" * 120)
     print(
-        f"{'window':<26} {'B&H':>14} {'Strategy':>14} {'Oracle L/F':>14} {'Oracle L/S':>14}   "
-        f"{'B&H Sh':>7} {'Strat Sh':>9} {'Orac Sh':>8}"
+        f"{'window':<26} {'B&H':>12} {'Comp':>12} {'HOMC':>12} {'Oracle L/F':>14}   "
+        f"{'B&H Sh':>7} {'Comp Sh':>8} {'HOMC Sh':>8}"
     )
     for r in df.to_dict("records"):
         win = f"{r['start']} → {r['end']}"
         print(
-            f"{win:<26} {pct(r['bh_cagr']):>14} {pct(r['strat_cagr']):>14} "
-            f"{pct(r['oracle_cagr']):>14} {pct(r['oracle_ls_cagr']):>14}   "
-            f"{s(r['bh_sharpe']):>7} {s(r['strat_sharpe']):>9} {s(r['oracle_sharpe']):>8}"
+            f"{win:<26} {pct(r['bh_cagr']):>12} {pct(r['comp_cagr']):>12} "
+            f"{pct(r['homc_cagr']):>12} {pct(r['oracle_cagr']):>14}   "
+            f"{s(r['bh_sharpe']):>7} {s(r['comp_sharpe']):>8} {s(r['homc_sharpe']):>8}"
         )
-
-    # Capture ratio = strategy CAGR / oracle CAGR (long-only oracle).
-    # Negative captures mean the strategy *lost* during a window the oracle
-    # would have made money on — i.e., it picked the wrong side.
-    capt_lf = df["strat_cagr"] / df["oracle_cagr"].replace(0, np.nan)
-    capt_ls = df["strat_cagr"] / df["oracle_ls_cagr"].replace(0, np.nan)
 
     print()
     print("=" * 120)
@@ -189,41 +219,52 @@ def main() -> None:
         )
 
     agg("Buy & hold CAGR", df["bh_cagr"])
-    agg("Composite strat CAGR", df["strat_cagr"])
+    agg("Composite CAGR", df["comp_cagr"])
+    agg("HOMC@order=5 CAGR", df["homc_cagr"])
     agg("Oracle (long/flat) CAGR", df["oracle_cagr"])
-    agg("Oracle (long/short) CAGR", df["oracle_ls_cagr"])
     print()
     agg("Buy & hold Sharpe", df["bh_sharpe"], formatter=s)
-    agg("Composite strat Sharpe", df["strat_sharpe"], formatter=s)
-    agg("Oracle (long/flat) Sharpe", df["oracle_sharpe"], formatter=s)
-    agg("Oracle (long/short) Sharpe", df["oracle_ls_sharpe"], formatter=s)
+    agg("Composite Sharpe", df["comp_sharpe"], formatter=s)
+    agg("HOMC@order=5 Sharpe", df["homc_sharpe"], formatter=s)
+    agg("Oracle Sharpe", df["oracle_sharpe"], formatter=s)
     print()
     agg("Buy & hold Max DD", df["bh_mdd"])
-    agg("Composite strat Max DD", df["strat_mdd"])
-    agg("Oracle (long/flat) Max DD", df["oracle_mdd"])
+    agg("Composite Max DD", df["comp_mdd"])
+    agg("HOMC@order=5 Max DD", df["homc_mdd"])
 
+    # Capture ratios
     print()
     print("=" * 120)
-    print("Capture ratio: strategy CAGR / oracle CAGR")
+    print("Sharpe capture vs perfect long/flat oracle")
     print("=" * 120)
+    comp_capture = df["comp_sharpe"] / df["oracle_sharpe"].replace(0, np.nan)
+    homc_capture = df["homc_sharpe"] / df["oracle_sharpe"].replace(0, np.nan)
     print(
-        f"vs long/flat oracle  : mean={capt_lf.mean() * 100:+6.1f}%  "
-        f"median={capt_lf.median() * 100:+6.1f}%  "
-        f"min={capt_lf.min() * 100:+6.1f}%  max={capt_lf.max() * 100:+6.1f}%"
+        f"Composite : mean={comp_capture.mean() * 100:+6.1f}%  "
+        f"median={comp_capture.median() * 100:+6.1f}%"
     )
     print(
-        f"vs long/short oracle : mean={capt_ls.mean() * 100:+6.1f}%  "
-        f"median={capt_ls.median() * 100:+6.1f}%  "
-        f"min={capt_ls.min() * 100:+6.1f}%  max={capt_ls.max() * 100:+6.1f}%"
+        f"HOMC@5    : mean={homc_capture.mean() * 100:+6.1f}%  "
+        f"median={homc_capture.median() * 100:+6.1f}%"
     )
 
-    # How often does the strategy beat each baseline?
-    win_vs_bh = (df["strat_cagr"] > df["bh_cagr"]).sum()
-    pos_strat = (df["strat_cagr"] > 0).sum()
+    # Head-to-head
     print()
-    print(f"Strategy beats buy & hold in {win_vs_bh}/16 windows")
-    print(f"Strategy positive CAGR in     {pos_strat}/16 windows")
-    print(f"Buy & hold positive CAGR in   {(df['bh_cagr'] > 0).sum()}/16 windows")
+    print("=" * 120)
+    print("HOMC vs Composite head-to-head")
+    print("=" * 120)
+    homc_beats_comp_cagr = (df["homc_cagr"] > df["comp_cagr"]).sum()
+    homc_beats_comp_sharpe = (df["homc_sharpe"] > df["comp_sharpe"]).sum()
+    homc_beats_bh = (df["homc_cagr"] > df["bh_cagr"]).sum()
+    comp_beats_bh = (df["comp_cagr"] > df["bh_cagr"]).sum()
+    homc_pos = (df["homc_cagr"] > 0).sum()
+    comp_pos = (df["comp_cagr"] > 0).sum()
+    print(f"HOMC beats Composite on CAGR   : {homc_beats_comp_cagr}/16 windows")
+    print(f"HOMC beats Composite on Sharpe : {homc_beats_comp_sharpe}/16 windows")
+    print(f"HOMC beats Buy & Hold on CAGR  : {homc_beats_bh}/16 windows")
+    print(f"Composite beats Buy & Hold     : {comp_beats_bh}/16 windows")
+    print(f"HOMC positive CAGR             : {homc_pos}/16 windows")
+    print(f"Composite positive CAGR        : {comp_pos}/16 windows")
 
 
 if __name__ == "__main__":
