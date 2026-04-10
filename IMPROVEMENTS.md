@@ -1,13 +1,22 @@
 # Signals — Roadmap of methodology improvements
 
-**Status as of 2026-04-10 (late)**: 71 tests passing, CI green on Python
-3.11/3.12, walk-forward engine verified lookahead-clean, holdout flag +
-deflated Sharpe shipped. **New production default: H-Vol (vol-routed
-hybrid)**, replacing composite-3×3. Median Sharpe 1.92 across 16 random
-6-month BTC windows (vs composite's 1.44 and HOMC's 1.83). Holdout Sharpe
-2.21 on BTC bull holdout, 0.99 on BTC bear-stress, 2.11 on SOL. Exception:
-composite remains the default for ETH where all models degrade. See
-`scripts/HOMC_TIER0C_HYBRID_RESULTS.md` for the full comparison.
+**Status as of 2026-04-11**: 76 tests passing, CI green on Python 3.11/3.12,
+walk-forward engine verified lookahead-clean. **Production scope: BTC-USD
+and ^GSPC only** — ETH and SOL deprioritized per user direction. **Current
+production defaults:**
+
+- **BTC**: H-Vol hybrid at `hybrid_vol_quantile=0.70` (retuned from 0.75
+  after vol quantile sweep). Median Sharpe **2.15** across 16 random 6-month
+  windows — best in project history. H-Blend (continuous ramp) is an
+  available alternative at median Sharpe 2.06.
+- **S&P 500 (^GSPC)**: **Buy & hold.** No active strategy in the project
+  beats B&H on S&P. HOMC is the closest at mean Sharpe 1.04 vs B&H's 1.07
+  but still loses on the median (0.66 vs 0.77). The hybrids are actively
+  negative on S&P (H-Vol median -0.03, H-Blend -0.40). See
+  `scripts/HOMC_TIER0E_BTC_SP500.md` for the full comparison.
+
+Full H-Vol comparison on BTC still pinned in `HOMC_TIER0C_HYBRID_RESULTS.md`;
+the comprehensive BTC + S&P result is in `HOMC_TIER0E_BTC_SP500.md`.
 
 This document is the **forward-looking improvement plan**. It is divided into
 three tiers by effort. Each item explains what to build, why it matters, and
@@ -537,73 +546,90 @@ script in `scripts/`.
 
 ## Post-hybrid new items (2026-04-10)
 
-### 16. Tune the vol quantile threshold
+### 16. Tune the vol quantile threshold — **[x] DONE 2026-04-11**
 
-**What**: Sweep `--hybrid-vol-quantile` over {0.50, 0.60, 0.70, 0.75, 0.80,
-0.85} on the random-window eval. The current default 0.75 is ad hoc —
-"put the top 25% of vol days in composite's lane" — and a better value
-probably exists.
+Swept q ∈ {0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.90} on BTC + ^GSPC.
 
-**Why**: A lower threshold (say 0.60) routes MORE days to composite,
-protecting against bears at the cost of bull participation. A higher
-threshold (say 0.85) does the opposite. The ideal is the one that
-maximizes random-window median Sharpe subject to a max DD constraint.
+**BTC result**: Optimum q=**0.70**, median Sharpe 2.15 (up from 1.92 at
+the old default q=0.75). +0.23 Sharpe improvement. Default changed in
+code.
 
-**How to validate**: Re-run `scripts/random_window_eval.py` with each
-candidate threshold. Pick the one with the highest median Sharpe and a
-max DD not more than 20% worse than the current 0.75.
+**^GSPC result**: Every quantile underperforms buy & hold. Best S&P
+quantile (q=0.50) produces median Sharpe 0.29 vs B&H's 0.77. No tune
+rescues the hybrid on S&P — recommendation is to hold the index rather
+than run a hybrid strategy.
 
-**Cost**: 5 min per sweep × 6 candidates = ~30 min. Cheapest remaining
-improvement on the list.
+See `scripts/HOMC_TIER0E_BTC_SP500.md` for the full per-quantile
+breakdown and `scripts/vol_quantile_sweep.py` for the runner.
 
-### 17. Fix ETH regime — the elephant
+### 16a. (New) Tune the H-Blend ramp parameters
 
-**What**: Investigate why every model in the project underperforms buy
-and hold on ETH-USD 2018-2024. Neither composite (Sharpe 0.39 holdout),
-HOMC (0.18), nor H-Vol (-0.40) produces a positive edge over ETH B&H.
+**What**: Sweep the (blend_low, blend_high) pair for H-Blend on BTC. The
+current default is (0.50, 0.85) — a median ramp that was a guess, not
+measured. A 2D sweep over {low in {0.30, 0.40, 0.50}} × {high in {0.70,
+0.80, 0.85, 0.90}} = 12 configs should reveal whether the blend can beat
+the retuned H-Vol @ q=0.70 baseline of 2.15 median Sharpe.
 
-**Why**: The signals project is a BTC/SOL strategy in practice right now
-because of this gap. Fixing ETH unlocks a second (third, fourth) major
-asset.
+**Why**: H-Blend at default (0.50, 0.85) scored 2.06 on BTC — close to
+H-Vol q=0.75 (1.92) and just below H-Vol q=0.70 (2.15). If the right
+(low, high) pair beats 2.15, blend becomes the new default.
 
-**Candidate hypotheses to test**:
-1. **Post-Merge regime break (2022-09)**. ETH's transaction-level dynamics
-   changed at the Merge. Models trained on pre-Merge data have stale
-   assumptions about volume, liquidity, and return distribution. Fix:
-   retrain only on post-2022-09 data and see if that helps.
-2. **Correlation to BTC masks ETH's own signal**. ETH is highly correlated
-   with BTC, so a BTC-tuned strategy's signal dominates whatever ETH-
-   specific structure exists. Fix: add a BTC return feature into the ETH
-   encoder and re-fit.
-3. **The composite encoder's return × vol grid is BTC-shaped.** BTC's
-   vol distribution is different from ETH's; composite's 3×3 quantile
-   grid may partition ETH observations pathologically. Fix: per-asset
-   vol binning.
+**Cost**: ~6 minutes (12 × 30 sec per random-window eval iteration).
 
-**How to validate**: Each hypothesis needs its own experiment. Start with
-#1 (cheapest, one sweep) and only move on if it fails.
+**How to validate**: Same methodology as #16 — 16 random windows, median
+Sharpe as the optimization target.
 
-### 18. Continuous blending hybrid
+### 17. Fix ETH regime — **[deleted 2026-04-11 — out of scope]**
 
-**What**: Instead of binary routing (composite OR HOMC per bar), blend
-their target positions: `target = w(vol) × composite_target + (1 - w(vol))
-× homc_target` where `w(vol)` ramps smoothly from 0 to 1 as vol crosses
-the quantile boundary. Reduces whipsaw and may preserve more peak return.
+ETH and SOL deprioritized. Production scope is BTC + ^GSPC only.
+Historical context preserved in `HOMC_TIER0B_COMPREHENSIVE.md` and
+`HOMC_TIER0C_HYBRID_RESULTS.md`.
 
-**Why**: The current router switches hard at the 75th percentile. If
-vol is just above threshold, the router throws out HOMC entirely even
-though HOMC still has ~80% of the underlying signal. A smooth blend
-keeps partial exposure.
+### 17a. (New) Model class for S&P 500
 
-**How to validate**: Run against the random-window eval. If median
-Sharpe ≥ H-Vol's 1.92 AND mean CAGR is closer to HOMC's +417%, ship it
-as a new routing strategy option.
+**What**: The signals project's Markov-chain models are the wrong tool
+for a secular-uptrend equity index. No strategy in the project (including
+the hybrid) beats S&P 500 buy & hold over 16 random windows. The
+recommended action is to hold SPY, not trade it. But if an active S&P
+strategy is a real priority, the model class to investigate is NOT
+Markov chains.
 
-**Where**: `signals/model/hybrid.py` — add `routing_strategy="blend"`
-that returns a weighted average of the two components' expected-return
-and confidence vectors. This requires the SignalGenerator to accept a
-pre-computed expected/confidence rather than computing from
-`predict_next` and `state_returns_` directly. Small refactor.
+**Candidates to explore**:
+1. **200-day moving average crossover** — classic trend-following. Long
+   when above the MA, flat when below. Captures 70-80% of B&H return
+   with ~60% of the drawdown historically.
+2. **Cross-sectional momentum** (12-1 month). Requires multiple assets
+   (S&P + bond index + gold + something else) and rotates into the
+   strongest trailing performer. Standard quant equity approach.
+3. **Volatility targeting** — leverage up in low-vol regimes, de-lever
+   in high-vol regimes. Targets a constant portfolio vol.
+4. **ML-based regime detection on macro features** (yield curve slope,
+   credit spreads, VIX level) instead of on price-only features.
+
+These are different research problems from the Markov-chain backbone
+of signals. They'd likely live in a new `signals/model/equity/`
+subpackage. Not on the roadmap until S&P is a real priority.
+
+### 18. Continuous blending hybrid — **[x] DONE 2026-04-11**
+
+Shipped as `routing_strategy="blend"` in `signals/model/hybrid.py`.
+Linear weight ramp from `blend_low_quantile` (full HOMC) to
+`blend_high_quantile` (full composite) of training vol. SignalGenerator
+compatibility achieved via a synthetic 1-state interface: `state_returns_
+= [blended_expected_return]`, `predict_next = [1.0]`, so `expected =
+probs @ state_returns_ = blended_expected_return`.
+
+**Result on BTC**: median Sharpe 2.06 at default ramp (0.50, 0.85), vs
+2.15 for H-Vol at the retuned q=0.70. H-Blend beats the old H-Vol
+default (1.92) but loses to the new one. Blend is marginally better
+than a hard switch on ambiguous windows (notably the 2022 crypto winter
+where H-Blend +32.2% vs H-Vol -9.2%) but loses overall because it over-
+participates in high-vol bulls.
+
+**Next step**: Tune the blend ramp parameters (see #16a above). A 2D
+sweep may find a (low, high) pair that beats 2.15.
+
+5 new tests in `tests/test_hybrid.py` including lookahead regression.
 
 ---
 

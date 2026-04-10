@@ -211,6 +211,132 @@ def test_hybrid_vol_routing_selects_by_vol_threshold(synthetic_prices):
     assert m.active_component_name == "homc"
 
 
+def test_hybrid_blend_fits_and_predicts(synthetic_prices):
+    """Blend strategy should fit both components and compute a blended
+    expected return at predict_state time."""
+    feats = _features(synthetic_prices)
+    m = HybridRegimeModel(
+        routing_strategy="blend",
+        blend_low_quantile=0.50,
+        blend_high_quantile=0.85,
+        homc_order=3,
+    ).fit(feats)
+    assert m.fitted_
+    assert m._blend_low_value is not None
+    assert m._blend_high_value is not None
+    assert m._blend_low_value < m._blend_high_value
+
+    state = m.predict_state(feats)
+    # Synthetic 1-state interface
+    probs = m.predict_next(state)
+    assert probs.shape == (1,)
+    assert probs[0] == pytest.approx(1.0)
+    assert m.state_returns_.shape == (1,)
+    # expected = probs @ state_returns_ = blended_expected_return
+    expected = float(probs @ m.state_returns_)
+    assert expected == m._blended_expected_return
+
+
+def test_hybrid_blend_weight_ramps_linearly(synthetic_prices):
+    """The blend weight should be 0 below low_value, 1 above high_value,
+    and linear in between."""
+    feats = _features(synthetic_prices)
+    m = HybridRegimeModel(
+        routing_strategy="blend",
+        blend_low_quantile=0.30,
+        blend_high_quantile=0.70,
+        homc_order=3,
+    ).fit(feats)
+
+    low = m._blend_low_value
+    high = m._blend_high_value
+    mid = (low + high) / 2
+
+    # Build a tiny feature frame carrying a specific vol value
+    def _with_vol(vol_value: float) -> pd.DataFrame:
+        idx = pd.date_range("2020-01-01", periods=3, freq="D", tz="UTC")
+        return pd.DataFrame(
+            {"return_1d": [0.0, 0.0, 0.0], "volatility_20d": [vol_value] * 3},
+            index=idx,
+        )
+
+    # Below low → weight 0 (all HOMC)
+    assert m._blend_weight(_with_vol(low * 0.5)) == 0.0
+    # Above high → weight 1 (all composite)
+    assert m._blend_weight(_with_vol(high * 2.0)) == 1.0
+    # Exactly at low → weight 0
+    assert m._blend_weight(_with_vol(low)) == 0.0
+    # Exactly at high → weight 1
+    assert m._blend_weight(_with_vol(high)) == 1.0
+    # Midpoint → weight 0.5
+    w_mid = m._blend_weight(_with_vol(mid))
+    assert 0.49 <= w_mid <= 0.51
+
+
+def test_hybrid_blend_expected_is_weighted_average(synthetic_prices):
+    """blended_expected_return should equal w*e_comp + (1-w)*e_homc."""
+    feats = _features(synthetic_prices)
+    m = HybridRegimeModel(
+        routing_strategy="blend",
+        blend_low_quantile=0.50,
+        blend_high_quantile=0.85,
+        homc_order=3,
+    ).fit(feats)
+    m.predict_state(feats)
+
+    # Manually compute what the two components would say and verify
+    state_comp = m.composite.predict_state(feats)
+    state_homc = m.homc.predict_state(feats)
+    e_comp = float(m.composite.predict_next(state_comp) @ m.composite.state_returns_)
+    e_homc = float(m.homc.predict_next(state_homc) @ m.homc.state_returns_)
+    w = m._blend_weight_composite
+    expected_blend = w * e_comp + (1.0 - w) * e_homc
+    assert m._blended_expected_return == pytest.approx(expected_blend, abs=1e-12)
+
+
+def test_hybrid_blend_engine_no_lookahead(synthetic_prices):
+    """Blend routing must also satisfy the lookahead regression."""
+    cfg = BacktestConfig(
+        model_type="hybrid",
+        train_window=300,
+        retrain_freq=60,
+        return_bins=3,
+        volatility_bins=3,
+        n_states=3,
+        order=3,
+        vol_window=10,
+        hybrid_routing_strategy="blend",
+        hybrid_blend_low=0.50,
+        hybrid_blend_high=0.85,
+    )
+
+    cutoff = 500
+    short_result = BacktestEngine(cfg).run(
+        synthetic_prices.iloc[:cutoff], symbol="TEST"
+    )
+    long_result = BacktestEngine(cfg).run(synthetic_prices, symbol="TEST")
+
+    short_eq = short_result.equity_curve.iloc[:-2]
+    common = short_eq.index.intersection(long_result.equity_curve.index)
+    pd.testing.assert_series_equal(
+        short_eq.loc[common],
+        long_result.equity_curve.loc[common],
+        check_names=False,
+        rtol=1e-9,
+        atol=1e-9,
+    )
+
+
+def test_hybrid_blend_quantile_validation():
+    """blend_low must be < blend_high, both in [0, 1]."""
+    with pytest.raises(ValueError, match="blend_low"):
+        HybridRegimeModel(blend_low_quantile=0.8, blend_high_quantile=0.5)
+    with pytest.raises(ValueError, match="blend_low"):
+        HybridRegimeModel(blend_low_quantile=-0.1, blend_high_quantile=0.5)
+    with pytest.raises(ValueError, match="blend_low"):
+        HybridRegimeModel(blend_low_quantile=0.5, blend_high_quantile=1.5)
+
+
 def test_hybrid_vol_routing_no_lookahead(synthetic_prices):
     """Vol routing must also satisfy the lookahead regression."""
     cfg = BacktestConfig(

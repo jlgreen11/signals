@@ -61,8 +61,16 @@ class BacktestConfig:
     # composite). See scripts/HOMC_TIER0C_HYBRID_RESULTS.md for the
     # comparison.
     hybrid_routing: dict[str, str] | None = None
-    hybrid_routing_strategy: str = "vol"   # "hmm" or "vol"
-    hybrid_vol_quantile: float = 0.75      # vol-routing threshold quantile
+    hybrid_routing_strategy: str = "vol"   # "hmm", "vol", or "blend"
+    # Default 0.70 comes from the Tier-0e vol quantile sweep on BTC-USD:
+    # q=0.70 produced median Sharpe 2.15 across 16 random 6-month windows,
+    # vs 1.92 at the ad-hoc q=0.75 default. See scripts/HOMC_TIER0E_RESULTS.md.
+    # NOTE: This is a BTC-optimal value. For ^GSPC, no hybrid quantile beats
+    # buy & hold — recommendation is to NOT use a hybrid strategy on ^GSPC
+    # at all. Stick with B&H or pass a per-symbol override.
+    hybrid_vol_quantile: float = 0.70
+    hybrid_blend_low: float = 0.50         # blend ramp lower quantile
+    hybrid_blend_high: float = 0.85        # blend ramp upper quantile
     initial_cash: float = 10_000.0
     commission_bps: float = 5.0
     slippage_bps: float = 5.0
@@ -146,6 +154,8 @@ class BacktestEngine:
                 routing=cfg.hybrid_routing or dict(DEFAULT_ROUTING),
                 routing_strategy=cfg.hybrid_routing_strategy,
                 vol_quantile_threshold=cfg.hybrid_vol_quantile,
+                blend_low_quantile=cfg.hybrid_blend_low,
+                blend_high_quantile=cfg.hybrid_blend_high,
             )
         raise ValueError(f"unknown model_type: {cfg.model_type!r}")
 

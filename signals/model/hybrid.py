@@ -64,11 +64,16 @@ DEFAULT_ROUTING: dict[str, str] = {
 
 # Routing strategies:
 #   "hmm"    — use the HMM regime detector's label (original design)
-#   "vol"    — use realized 20d vol vs training-distribution quantile
-#              High vol (top 25% of training) → bear regime → composite
-#              Normal/low vol → bull regime → homc
+#   "vol"    — hard binary switch: current 20d vol >= training 75th percentile
+#              → bear regime → composite, else bull → homc
 #              Stable, interpretable, no flipping on bar-level noise.
-ROUTING_STRATEGIES = ("hmm", "vol")
+#   "blend"  — continuous weighted blend of composite and HOMC, with the
+#              weight ramping linearly from 0 (full HOMC) at the low
+#              quantile to 1 (full composite) at the high quantile. Uses
+#              the same vol signal as "vol" but degrades smoothly through
+#              ambiguous vol regimes instead of switching hard. Preserves
+#              more of HOMC's peak return in transitional periods.
+ROUTING_STRATEGIES = ("hmm", "vol", "blend")
 
 
 class HybridRegimeModel:
@@ -93,6 +98,8 @@ class HybridRegimeModel:
         routing: dict[str, str] | None = None,
         routing_strategy: str = "hmm",
         vol_quantile_threshold: float = 0.75,
+        blend_low_quantile: float = 0.50,
+        blend_high_quantile: float = 0.85,
     ):
         if regime_n_states not in (2, 3):
             raise ValueError("regime_n_states must be 2 or 3")
@@ -118,7 +125,21 @@ class HybridRegimeModel:
         self.routing = dict(routing) if routing is not None else dict(DEFAULT_ROUTING)
         self.routing_strategy = routing_strategy
         self.vol_quantile_threshold = float(vol_quantile_threshold)
-        self._vol_threshold_value: float | None = None  # set during fit
+        self.blend_low_quantile = float(blend_low_quantile)
+        self.blend_high_quantile = float(blend_high_quantile)
+        if not 0 <= self.blend_low_quantile < self.blend_high_quantile <= 1:
+            raise ValueError(
+                "blend_low_quantile must be < blend_high_quantile and both in [0, 1]"
+            )
+        self._vol_threshold_value: float | None = None
+        self._blend_low_value: float | None = None
+        self._blend_high_value: float | None = None
+        # Blend strategy precomputes the blended expected return at
+        # predict_state time and exposes it via a synthetic 1-state
+        # interface in predict_next/state_returns_. These fields hold
+        # the current per-bar values set by predict_state.
+        self._blended_expected_return: float = 0.0
+        self._blend_weight_composite: float = 0.0
         self._validate_routing()
 
         self.regime_detector: HiddenMarkovModel | None = None
@@ -175,18 +196,20 @@ class HybridRegimeModel:
                 return_col="return_1d",
             )
         else:
-            # Vol-based routing: compute the vol threshold from the training
-            # window. Anything above this quantile is "high vol" and routes
-            # to composite; anything below routes to HOMC. This avoids the
-            # noise issues of HMM latent-state classification and captures
-            # the real signal (crash regimes have sustained high vol).
+            # Vol-based routing: compute vol quantile(s) from the training
+            # window. The "vol" strategy uses a single threshold for hard
+            # switching; the "blend" strategy uses a low/high pair that
+            # defines a linear ramp for continuous weighting between the
+            # two components.
             vols = observations["volatility_20d"].dropna()
             if len(vols) < 10:
                 raise ValueError("Not enough vol observations to set threshold")
             self._vol_threshold_value = float(
                 vols.quantile(self.vol_quantile_threshold)
             )
-            self.regime_detector = None  # unused for vol strategy
+            self._blend_low_value = float(vols.quantile(self.blend_low_quantile))
+            self._blend_high_value = float(vols.quantile(self.blend_high_quantile))
+            self.regime_detector = None
 
         # 2. Composite component — trained on the trailing
         # composite_train_window bars only, matching the standalone
@@ -246,9 +269,58 @@ class HybridRegimeModel:
         assert self.composite is not None
         return component_name, self.composite
 
+    def _blend_weight(self, observations: pd.DataFrame) -> float:
+        """Return the composite weight in [0, 1] for the current bar's vol.
+
+        0 = full HOMC, 1 = full composite. Linear ramp between
+        blend_low_value (w=0) and blend_high_value (w=1).
+        """
+        assert self._blend_low_value is not None
+        assert self._blend_high_value is not None
+        vol_series = observations["volatility_20d"].dropna()
+        if vol_series.empty:
+            return 0.5
+        current_vol = float(vol_series.iloc[-1])
+        lo, hi = self._blend_low_value, self._blend_high_value
+        if current_vol <= lo:
+            return 0.0
+        if current_vol >= hi:
+            return 1.0
+        return (current_vol - lo) / (hi - lo)
+
     def predict_state(self, observations: pd.DataFrame) -> Any:
         if not self.fitted_:
             raise RuntimeError("HybridRegimeModel not fit")
+
+        if self.routing_strategy == "blend":
+            # Continuous blend: run both components, compute their expected
+            # returns, and synthesize a weighted blend. The active component
+            # is marked as "blend" and predict_next/state_returns_ return a
+            # 1-state synthetic interface carrying the blended expected.
+            assert self.composite is not None and self.homc is not None
+            state_comp = self.composite.predict_state(observations)
+            state_homc = self.homc.predict_state(observations)
+            e_comp = float(
+                self.composite.predict_next(state_comp)
+                @ self.composite.state_returns_
+            )
+            e_homc = float(
+                self.homc.predict_next(state_homc) @ self.homc.state_returns_
+            )
+            w = self._blend_weight(observations)
+            self._blend_weight_composite = w
+            self._blended_expected_return = w * e_comp + (1.0 - w) * e_homc
+            if w >= 0.5:
+                self._last_regime_label = "bear"
+                self._active_component_name = f"blend(c={w:.2f})"
+            else:
+                self._last_regime_label = "bull"
+                self._active_component_name = f"blend(h={1 - w:.2f})"
+            # Active component is self — delegate predict_next/state_returns_
+            # to the synthetic interface below.
+            self._active_component = self
+            return 0  # synthetic state index
+
         regime_label = self._regime_label(observations)
         self._last_regime_label = regime_label
         component_name, component = self._select_component(regime_label)
@@ -262,25 +334,42 @@ class HybridRegimeModel:
                 "predict_state must be called before predict_next — active "
                 "component is not set"
             )
+        if self.routing_strategy == "blend":
+            # Synthetic 1-state interface: returns [1.0] so the SignalGenerator
+            # dot-product expected = 1.0 * blended_expected_return.
+            return np.array([1.0])
         return self._active_component.predict_next(state)
 
     @property
     def state_returns_(self) -> np.ndarray:
+        if self.routing_strategy == "blend" and self.fitted_:
+            # Synthetic 1-state vector carrying the per-bar blended
+            # expected return. SignalGenerator computes
+            #     expected = probs @ state_returns_ = 1 * blended_expected
+            # and then the direction mask is [True] or [False] depending on
+            # the sign, giving confidence = 1.0. Confidence of 1.0 is OK
+            # because the components' individual confidences are already
+            # baked into their expected returns (a weak signal has a small
+            # |expected|), and SignalGenerator's magnitude formula
+            # (|expected| / scale) sizes positions proportionally.
+            return np.array([self._blended_expected_return])
         if self._active_component is None:
-            # Fall back to composite at init time (e.g. for introspection
-            # before the first predict_state call).
             if self.composite is not None:
                 return self.composite.state_returns_
             return np.zeros(0)
         return self._active_component.state_returns_
 
     def label(self, state: Any) -> str:
+        if self.routing_strategy == "blend":
+            return f"{self._last_regime_label}/{self._active_component_name}"
         if self._active_component is None:
             return "hybrid/?"
         base = self._active_component.label(state)
         return f"{self._last_regime_label}/{self._active_component_name}:{base}"
 
     def expected_next_return(self, state: Any) -> float:
+        if self.routing_strategy == "blend":
+            return float(self._blended_expected_return)
         if self._active_component is None:
             raise RuntimeError("predict_state must be called first")
         return self._active_component.expected_next_return(state)
@@ -324,6 +413,10 @@ class HybridRegimeModel:
             "routing_strategy": self.routing_strategy,
             "vol_quantile_threshold": self.vol_quantile_threshold,
             "vol_threshold_value": self._vol_threshold_value,
+            "blend_low_quantile": self.blend_low_quantile,
+            "blend_high_quantile": self.blend_high_quantile,
+            "blend_low_value": self._blend_low_value,
+            "blend_high_value": self._blend_high_value,
             "fitted": self.fitted_,
             "files": {
                 "regime": f"{base.name}.regime.pkl",
@@ -357,6 +450,8 @@ class HybridRegimeModel:
             routing=manifest["routing"],
             routing_strategy=manifest.get("routing_strategy", "hmm"),
             vol_quantile_threshold=manifest.get("vol_quantile_threshold", 0.75),
+            blend_low_quantile=manifest.get("blend_low_quantile", 0.50),
+            blend_high_quantile=manifest.get("blend_high_quantile", 0.85),
         )
         base = path.with_suffix("")
         if obj.routing_strategy == "hmm":
@@ -365,6 +460,8 @@ class HybridRegimeModel:
             )
         else:
             obj._vol_threshold_value = manifest.get("vol_threshold_value")
+            obj._blend_low_value = manifest.get("blend_low_value")
+            obj._blend_high_value = manifest.get("blend_high_value")
         obj.composite = CompositeMarkovChain.load(
             base.with_name(base.name + ".composite.json")
         )
