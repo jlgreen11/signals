@@ -654,31 +654,76 @@ Full analysis: `scripts/SP500_TREND_AND_HOMC_MEMORY.md`.
 3. **Macro-feature regime detection** (VIX, yield curve, credit spreads)
 4. **Factor rotation** (SPY + GLD + TLT + cash, 12-1 momentum)
 
-### 19. Multi-asset portfolio construction — **NEW TOP PRIORITY for S&P**
+### 19. Multi-asset portfolio construction — **[x] DONE 2026-04-11 — SOFT WIN**
 
-**What**: Construct a 2-asset (or 3-asset) portfolio where BTC uses the
-H-Vol hybrid (median Sharpe 2.15) and SPX uses buy & hold (median
-Sharpe 0.77). Allocate between them via risk parity, min-vol, or a
-simple fixed weight. The cross-asset correlation is low, so the
-portfolio Sharpe may exceed both individual Sharpes.
+Implemented as `scripts/btc_sp500_portfolio.py` (+ multi-seed robustness
+as Phase B of `scripts/btc_deep_sweep_robustness.py`). Full writeup at
+`scripts/BTC_SP500_PORTFOLIO_RESULTS.md`.
 
-**Why it matters**: This is the FIRST candidate for beating B&H on S&P
-that doesn't require new model classes. It uses what's already built.
-If BTC/SPX correlation is ~0.2 (typical historical value), a 60/40 SPX/
-BTC portfolio could produce a portfolio Sharpe meaningfully above
-B&H's 0.77 even before the BTC component is optimized.
+**Result**: the 40/60 BTC/SP mix with daily rebalancing averages median
+Sharpe **1.16** across 4 seeds, vs BTC-alone's **1.00**. That's a +16%
+improvement — the **first genuine alpha in the project that isn't
+from parameter tuning**. Wins on 3 of 4 seeds (seed 100 is the
+exception where BTC alone crushed it).
 
-**How to validate**: Compute the 16-window random-eval Sharpe of a
-weighted portfolio (weights fixed, or risk-parity) using the existing
-BTC and SPX result series. No new model fitting required — just
-linear combinations of existing equity curves.
+**Seed 42 detail**: 40/60 daily = median Sharpe 2.44, CAGR +93%,
+mean max DD -10.3%. Baseline BTC-alone = median Sharpe 2.15, CAGR
++156%, MDD -21.3%. The mix trades peak return for half the drawdown
+with higher Sharpe.
 
-**Cost**: ~1 hour to write the portfolio combiner + analysis script.
-No new tests needed (portfolio math is straightforward linear
-algebra).
+**Recommendation**: for a risk-balanced user, 40/60 BTC/SP with daily
+rebalancing is a defensible default. For a return-maximizing user,
+BTC hybrid alone still wins on upside CAGR during BTC-strong periods.
+Not uniformly dominant.
 
-**Where**: New `signals/backtest/portfolio_blend.py` helper +
-`scripts/btc_sp500_portfolio.py` analysis script.
+**Not shipped as code**: the portfolio combiner exists only as an
+analysis script. A production-quality `PortfolioCombiner` class,
+CLI command, and signal-next portfolio workflow are tracked as
+follow-up item #20 below.
+
+### 20. Ship portfolio combiner as production code — **NEW**
+
+**What**: Promote the research portfolio combiner from
+`scripts/btc_sp500_portfolio.py` into `signals/backtest/portfolio_blend.py`
+with a proper interface. Add a `signals backtest portfolio` CLI command
+and a `signal next portfolio` workflow.
+
+**Why**: The 40/60 BTC/SP result is real enough to productionize, but
+the current implementation is a post-hoc linear combination of equity
+curves — not something a live operator could trade. Need:
+1. A combiner class that handles different trading calendars (BTC 7d,
+   SP 5d), rebalancing cadence (daily/weekly/monthly/drift-threshold),
+   and tax-aware rebalancing.
+2. CLI: `signals backtest portfolio BTC-USD:0.4:hybrid ^GSPC:0.6:bh
+   --rebalance monthly`.
+3. Portfolio-level metrics: CVaR, correlation, rolling beta, tracking
+   error.
+4. `signal next portfolio` that outputs today's target dollar allocation
+   per symbol.
+
+**Cost**: ~1-2 days of implementation + tests. None of this is
+methodology work — it's productionization of a validated research finding.
+
+### 21. BTC parameter plateau confirmed — **[x] DONE 2026-04-11**
+
+Tier-2 deep sweep (1,616 backtests across 5 dimensions) + multi-seed
+robustness (640 additional backtests) established that the production
+H-Vol @ q=0.70 defaults are at a multi-seed plateau. Zero parameter
+tweaks beat baseline at all 4 seeds; the most promising apparent winner
+(sell_bps=-20 at seed-42 Sharpe 2.40) is actually NET WORSE across
+seeds (average 0.94 vs baseline 1.00). Full writeup at
+`scripts/BTC_DEEP_SWEEP_RESULTS.md`.
+
+**Implication for the roadmap**: parameter tuning within the current
+model class is exhausted. Future Sharpe improvements require:
+- Different features (macro, on-chain, cross-asset)
+- Different model classes (gradient boosting, RNN)
+- Non-stationary parameters (time-varying quantiles)
+- Portfolio construction (see #19/#20 above — already done)
+
+None of the first three are on the current roadmap. They're enumerated
+here as candidates for future work if the user decides to push beyond
+the current plateau.
 
 ### 18. Continuous blending hybrid — **[x] DONE 2026-04-11**
 

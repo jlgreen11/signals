@@ -25,6 +25,11 @@ env/
 *.parquet
 *.db
 
+# But DO track persisted sweep results under scripts/data/ so a fresh clone
+# can inspect the raw per-window data without re-running the sweeps.
+!scripts/data/*.parquet
+!scripts/data/*.json
+
 # Environment
 .env
 .env.local
