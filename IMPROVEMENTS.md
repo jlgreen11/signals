@@ -1,0 +1,430 @@
+# Signals — Roadmap of methodology improvements
+
+**Status as of 2026-04-10**: 59 tests passing, CI green on Python 3.11/3.12,
+walk-forward engine verified lookahead-clean, holdout flag + deflated Sharpe
+shipped. Composite-3×3 (1.29 Sharpe / -21% MDD across 16 random 6-month BTC
+windows) is the production default. The strategy is a defensive overlay
+capturing roughly 16% of the Sharpe of a perfect-direction oracle.
+
+This document is the **forward-looking improvement plan**. It is divided into
+three tiers by effort. Each item explains what to build, why it matters, and
+how to validate it (so you can decide whether to keep the change).
+
+The plan is grounded in two pieces of evidence:
+
+1. **The 16-window random evaluation** (`scripts/RANDOM_WINDOW_EVAL.md`) showed
+   that the strategy gets the *direction* right far more often than the
+   *magnitude* — same direction as buy & hold in winning windows but only half
+   the size, and 13/16 windows positive vs B&H 9/16. The structural cost is
+   under-participation in strong bull rallies.
+
+2. **The Nascimento et al. (2022) paper** (the source for HOMC) found
+   empirically that BTC, ETH, and XRP have **7 steps of memory** and LTC has
+   **9** when discretized at granularity 0.01 (1% return bins). The signals
+   HOMC backend defaults to `order=3` and uses *quantile* rather than absolute
+   bins, so it is structurally undertuned vs the paper's own findings.
+
+The single highest-information experiment is the order=7 HOMC sweep
+(see Tier 1 / item 0). Results are pinned at
+`scripts/HOMC_ORDER7_RESULTS.md`. If that test confirms the paper's claim,
+several Tier-1/2 items move ahead in priority.
+
+---
+
+## Tier 0 — Validation experiment (run first, before any code change)
+
+### 0. HOMC at order=7 with holdout validation — **[x] DONE 2026-04-10**
+
+**Result**: Negative. The paper's claim does not transfer. See
+`scripts/HOMC_ORDER7_RESULTS.md` for the full analysis. Headline numbers:
+
+- 25 sweep configs, all DSR = 0.00 (none survive multi-trial deflation)
+- Best in-sample: 20.9% CAGR / 0.54 Sharpe / -55% MDD with 8 trades over
+  ~5.5 years (B&H over the same window: 34.9% CAGR)
+- Holdout collapses to 1.41% CAGR with 1 trade in 512 bars — the strategy
+  effectively stops trading because order=7 in a 252-bar walk-forward
+  window can't find repeating k-tuples and falls back to the marginal
+  distribution
+
+Implication: HOMC at high order is incompatible with adaptive walk-forward
+on standard window sizes. Tier-1 #5/#6/#7 (asymmetric sizing, cap removal,
+multi-asset eval) move ahead of #1/#2 (granularity encoder + sweep). Tier-3
+#12 (sparse k-tuple representation) is deprioritized — it solves a
+non-bottleneck.
+
+---
+
+### 0a. (Recommended next test) Larger train window + lower order
+
+**Question**: Does the HOMC become tradeable with order=5 and a 1000-bar
+training window, where there's enough data per fit to populate the k-tuple
+table densely?
+
+**How to run**:
+
+```bash
+signals backtest sweep BTC-USD --model homc \
+  --start 2015-01-01 --end 2024-12-31 \
+  --states 5 --order 5 \
+  --train-window 1000 \
+  --buy-grid "10,15,20,25,30" \
+  --sell-grid "-10,-15,-20,-25,-30" \
+  --stop-grid "0" \
+  --no-short \
+  --rank-by sharpe \
+  --top 10 \
+  --holdout-frac 0.2
+```
+
+**Decision rule**:
+
+- **DSR > 0.5 AND holdout Sharpe ≥ 0.5** → HOMC is salvageable with the
+  right window size; build Tier-1 #1 (AbsoluteGranularityEncoder) and #2
+  (order/granularity sweep) so we can find the right operating point.
+- **Otherwise** → HOMC is permanently a research-only backend; production
+  default stays composite-3×3 plus the Tier-1 #5/#6 sizing improvements.
+
+---
+
+## Tier 1 — Quick wins (each ~half a day)
+
+### 1. AbsoluteGranularityEncoder
+
+**What**: A new state encoder that bins returns by *absolute width* (e.g.
+0.005 = 50 bps, 0.01 = 1%, 0.02 = 2%) instead of by quantile. The existing
+`QuantileStateEncoder` adapts to the empirical distribution and loses the
+economic interpretation; the absolute encoder lets you say "this state means a
+1% up move" and is what the Nascimento paper actually uses.
+
+**Why it matters**: Quantile bins become unstable as the underlying
+distribution shifts (a "deep bear" bin in low-vol 2019 is at a different
+return level than a "deep bear" bin in high-vol 2022). Absolute bins are
+stationary by construction. The paper's headline 7-step memory finding was
+only observable at a 0.01 granularity — it likely vanishes under quantile
+binning because the bins keep getting redrawn.
+
+**How to validate**: Once Tier 0 (HOMC@order=7) completes, repeat the
+experiment with the absolute encoder at granularity 0.01. If the absolute
+encoder produces a higher DSR or holdout Sharpe than the quantile encoder at
+the same order, it's a permanent improvement.
+
+**Where**: `signals/model/states.py` — new class `AbsoluteGranularityEncoder`,
+plus a `--granularity` flag on the HOMC and composite training paths.
+
+### 2. Order-and-granularity sweep flags
+
+**What**: Add `--order-grid "1,3,5,7,9"` and `--granularity-grid
+"0.005,0.01,0.02"` to `backtest sweep`. The deflated-Sharpe column already in
+place will tell you if any winning combination survives the multi-trial
+deflation.
+
+**Why it matters**: Sweep is currently fixed-order. Without an order grid you
+can't tell if the paper's 7-step finding holds — you can only test it
+manually one order at a time. With holdout already wired up, this becomes a
+proper out-of-sample order-selection procedure.
+
+**How to validate**: Run the grid on BTC over 2018-2022 with `--holdout-frac
+0.2` reserving 2023-2024. The best in-sample (order, granularity) pair should
+not catastrophically degrade on the holdout. If the holdout Sharpe is within
+30% of in-sample, the configuration is real.
+
+**Where**: `signals/cli.py` — extend `backtest_sweep`. Already has
+multi-trial DSR and holdout split, so this is purely a Cartesian-product
+extension.
+
+### 3. AIC/BIC for HOMC order selection
+
+**What**: Add `model.aic` and `model.bic` properties to `HigherOrderMarkovChain`
+(and the composite/HMM for parity). With `k` states, order `m`, and `n`
+training observations, the free parameter count is `k^m × (k − 1)`. AIC =
+2p − 2·log L; BIC = log(n)·p − 2·log L. Then a CLI helper
+`signals model select-order BTC-USD --max-order 10` fits orders 1..N and
+prints both criteria, letting you pick objectively.
+
+**Why it matters**: The Nascimento paper picks order by eyeballing test MAPE
+across orders 1..10 — methodologically weak but pragmatic. AIC/BIC is the
+principled way to do the same thing and lets you justify the chosen order
+without an out-of-sample run for every change.
+
+**How to validate**: AIC/BIC should agree within ±2 orders for a
+well-specified model. If they disagree by more than 4, the model is
+mis-specified or the transition matrix is too sparse — that's a useful
+warning.
+
+**Where**: `signals/model/homc.py`, `signals/model/composite.py`,
+`signals/model/hmm.py`. The HMM already tracks log-likelihood; the others
+need it added.
+
+### 4. Activate `top_rules()` as a trading signal
+
+**What**: A `RuleBasedSignalGenerator` that only emits BUY/SELL when the
+current k-tuple matches one of the top-K most-frequent training rules with
+strong directional consensus (e.g. P(next direction) ≥ 0.7). Falls back to
+HOLD when no rule matches.
+
+**Why it matters**: The Nascimento paper's actual proposal is **rule
+extraction**, not full marginal-distribution trading. Your HOMC has the
+`top_rules()` method already, but the strategy ignores it — it computes the
+expected next return from the entire transition matrix and trades the
+average. The rule-based variant is sparser, more conservative, and easier to
+interpret. It's a natural complement to the composite default.
+
+**How to validate**: Run the rule-based generator on the 16-window random
+evaluation set. Expected outcome: lower trade count, higher win rate per
+trade, possibly lower CAGR but higher Sharpe. If win rate goes up and Sharpe
+holds, integrate as an optional `--rule-based` flag on `signal next` and
+`backtest run`.
+
+**Where**: New file `signals/model/rule_signals.py` next to the existing
+`signals.py`. Implements the same `SignalGenerator` interface so the engine
+can swap.
+
+### 5. Asymmetric / aggressive position sizing
+
+**What**: Two new flags on the existing strategy: `--target-scale-bps 10`
+(half the current default) lets the same expected-return signal map to a
+larger fraction; `--max-long 1.5` lets the strongest signals lever up beyond
+100%. Plus an experimental `--confidence-power 2.0` that squares the
+confidence factor so high-conviction trades dominate low-conviction ones.
+
+**Why it matters**: The 16-window random eval showed the strategy gets the
+*direction* right but takes too small a position in winning windows
+(2019-01-11 → 2019-05-16: same direction as B&H, half the size). The
+defensive thresholds are working; the sizing is leaving alpha on the table.
+
+**How to validate**: Re-run the 16-window evaluation with the more aggressive
+sizing. Expected outcome: higher mean CAGR, similar drawdown profile, Sharpe
+roughly preserved. If max DD blows past -30%, the sizing is too aggressive
+and needs to be backed off.
+
+**Where**: `signals/model/signals.py` — already accepts `target_scale_bps`
+and `max_long`; just need the new defaults wired through CLI flags and a CLI
+default change.
+
+### 6. Confidence-weighted targets without the unit cap
+
+**What**: The current target formula is `min(1, |E[r]| / scale) × confidence`
+which caps every signal at 100% notional. Removing the cap (with
+`max_long=1.5` or `2.0`) lets the strongest signals get more allocation.
+
+**Why it matters**: Same root cause as #5 — the cap is the structural reason
+why a 5x-conviction signal trades the same size as a 1x-conviction signal.
+Removing it is the simplest possible sizing fix.
+
+**How to validate**: Run the random-window eval. Specifically watch the
+2019-01 cluster of windows where the strategy was directionally correct but
+3× too small. If those windows close the gap on B&H, the cap removal worked.
+
+**Where**: `signals/model/signals.py` `SignalGenerator.generate()` — one
+line.
+
+### 7. Multi-asset random-window benchmark
+
+**What**: Extend `scripts/random_window_eval.py` to take a list of symbols
+(BTC-USD, ETH-USD, SOL-USD, etc.) and produce a per-symbol Sharpe-capture
+table. Mirrors the Nascimento paper's BTC/ETH/LTC/XRP comparison.
+
+**Why it matters**: Right now we have 16 BTC windows of evidence and nothing
+else. The strategy could be BTC-overfit. The paper's finding that ETH and XRP
+share BTC's 7-step memory is testable: run our own framework on those assets
+and see if the Sharpe-capture ratio holds up.
+
+**How to validate**: If ETH/SOL Sharpe-capture is within ±5pp of BTC's 16%,
+the strategy is asset-general. If it drops to <5%, BTC has unique structure
+the strategy is exploiting and the production scope should stay BTC-only.
+
+**Where**: `scripts/random_window_eval.py` — add a `--symbols` flag and a
+loop. Need to fetch the data first via `signals data fetch` for each.
+
+---
+
+## Tier 2 — Methodological (each ~1 day)
+
+### 8. Walk-forward purged k-fold cross-validation
+
+**What**: Replace the current contiguous train/test slicing in
+`BacktestEngine` with López de Prado–style purged k-fold: split the data into
+N folds, hold one out, train on the others, and apply a *purge buffer*
+between train and test to eliminate any feature/label overlap. Aggregate
+metrics across folds.
+
+**Why it matters**: The current walk-forward is correct as-is (lookahead
+verified), but it produces a single equity curve. Purged k-fold gives N
+independent estimates of the strategy's Sharpe, which lets you compute
+confidence intervals and do paired statistical tests across configurations.
+This is the methodology gap that the holdout flag only partly addresses.
+
+**How to validate**: Run on BTC with N=5 folds. The reported Sharpe should
+have a confidence interval narrow enough to distinguish the composite default
+from a 0.5-Sharpe baseline at p < 0.05. If the CI is wider than that, the
+sample size is the limit, not the model.
+
+**Where**: New `signals/backtest/cv.py` next to `engine.py`. Engine refactor
+to be optional (current `run()` stays as-is for fast backtests).
+
+### 9. Per-asset model selection
+
+**What**: A CLI command `signals model select BTC-USD` that fits all three
+models (composite, HMM, HOMC) at a small grid of hyperparameters, computes
+deflated Sharpe and AIC/BIC, and picks the best per asset. Saves the choice
+to a per-symbol config file so future runs don't re-fit.
+
+**Why it matters**: Right now the CLI defaults are tuned for BTC. ETH may
+prefer HMM, SOL may prefer composite, etc. The Nascimento paper found
+different memory profiles per asset (BTC=7, LTC=9). Hard-coding one model is
+the wrong default for a multi-asset platform.
+
+**How to validate**: After running on 3-4 assets, check whether the auto-
+selected model matches the manually-tuned one. If yes, the auto-selector is
+trustworthy; if no, debug the criterion.
+
+**Where**: New `signals/cli.py` command `model_select`, plus a tiny config
+file under `data/` per symbol.
+
+### 10. Feature stacking: HMM regime as composite input
+
+**What**: Extend the composite encoder to take a third axis: the HMM regime.
+A 3×3×3 = 27-state grid where the HMM regime tag is one of the dimensions.
+Trained as a 1st-order Markov chain over 27 states.
+
+**Why it matters**: The composite captures per-bar return × volatility but
+can't see multi-day regimes. The HMM captures regime but loses the per-bar
+detail. Stacking gives both. The paper doesn't address this — it's a
+synthesis the signals codebase is uniquely positioned to test because it has
+all three model classes.
+
+**How to validate**: Compare the stacked composite against the plain
+composite on the 16-window random eval. Expected outcome: at least one of
+the regime-specific cells should fire a clearly-different signal than the
+plain composite would, and the random-window Sharpe should be ≥ the plain
+composite's. If they're equal, the regime tag isn't adding information.
+
+**Where**: `signals/model/states.py` — new `RegimeAwareCompositeEncoder` that
+takes a fitted HMM as a constructor argument. Engine plumbing to pass an HMM
+in.
+
+### 11. Real risk-free rate plumbed through the CLI
+
+**What**: A `--risk-free-rate` flag on `backtest run` and `backtest sweep`
+that defaults to 0 but accepts annualized values (e.g. 0.045 for 4.5%). The
+config field already exists; only the CLI surface is missing.
+
+**Why it matters**: All current Sharpe numbers are computed with Rf = 0,
+which is the simplest assumption but inflates the apparent Sharpe by ~0.05
+for a strategy returning ~20% annualized. Real comparisons against external
+strategies require a real Rf. The infrastructure landed in the audit
+follow-up; only the CLI surface is missing.
+
+**How to validate**: Sharpe should drop monotonically as Rf increases. A
+strategy with Sharpe 1.3 at Rf=0 should be ~1.25 at Rf=0.04.
+
+**Where**: `signals/cli.py` `backtest_run` and `backtest_sweep` — pass
+through to `_build_config`.
+
+---
+
+## Tier 3 — Research-grade (each ~1 week)
+
+### 12. Sparse k-tuple representation throughout the engine
+
+**What**: The HOMC stores transitions as a `dict[tuple, ndarray]` already,
+which is sparse — but the `predict_next` path materializes a full marginal,
+and several derived computations (n-step, steady-state) implicitly densify.
+Refactor to keep everything sparse so order-9 with 5 states fits in memory
+even when most k-tuples are unobserved.
+
+**Why it matters**: At order=9 the dense tensor is 5^10 = 9.7M cells, which
+is still tractable but the *intermediate* dense operations during prediction
+blow the cost up. Sparse end-to-end means orders 9-12 become feasible if the
+data supports them.
+
+**How to validate**: Memory profiling at order=9 with 5 states. Should stay
+under 100MB during a backtest. If it does, you can run the paper's headline
+LTC=9 finding directly.
+
+**Where**: `signals/model/homc.py` — refactor `predict_next`,
+`expected_next_return`, `n_step`, and `steady_state` to operate on sparse
+intermediate forms.
+
+### 13. Hybrid model
+
+**What**: A meta-model that delegates to one of {composite, HMM, HOMC,
+rule-based} per bar based on which model is most confident. Specifically: HMM
+detects the regime; within the regime, the composite picks the per-bar
+signal; HOMC kicks in only when its current k-tuple matches a high-frequency
+rule with strong directional consensus.
+
+**Why it matters**: Each model captures structure the others can't. The
+composite is fast and dense but per-bar; the HMM is regime-aware but slow;
+HOMC is rule-aware but sparse. A meta-model that picks per-bar lets each
+contribute when it's most informative.
+
+**How to validate**: Compare the hybrid against each individual model on the
+16-window random eval. Expected outcome: hybrid Sharpe ≥ max(composite, HMM,
+HOMC) and ≤ a pure oracle. If hybrid beats the best individual model by
+≥0.1 Sharpe, ship it.
+
+**Where**: New `signals/model/hybrid.py`. Conforms to the same interface as
+the others so the engine doesn't need changes.
+
+### 14. Bayesian model averaging
+
+**What**: Instead of picking one model, weight the three (composite, HMM,
+HOMC) by their posterior given the data, and combine their predictions as a
+weighted average. The weights update as evidence accumulates.
+
+**Why it matters**: Picking one model (Tier-2 #9) commits to it. Bayesian
+averaging hedges across model uncertainty, which is the more honest answer
+when you have three plausible candidates and not enough data to decisively
+prefer one.
+
+**How to validate**: The averaged predictor should never be worse than the
+*worst* individual model and rarely worse than the best. If the averaging
+collapses to picking a single model with weight ≈ 1, the data is decisive
+and you can use that one. If weights stay near 1/3, the data is not decisive
+and averaging is the right call.
+
+**Where**: New `signals/model/bma.py`. Requires a likelihood function for
+each model class — the HMM has one already, HOMC and composite need
+log-likelihood added.
+
+### 15. Live broker integration
+
+**What**: Take the existing `PaperBroker` and wire a real broker
+(Alpaca/Coinbase) behind the same interface. Schedule `signal next` to run
+daily via cron, post to the broker, log fills. Reconcile the recorded
+signals against actual fills the next day.
+
+**Why it matters**: Everything until now is paper. The whole point is to
+trade. Once the methodology is locked, this is the long-tail engineering
+work to get from "good backtest" to "deployed on capital you care about".
+
+**How to validate**: Run on a small position size for 30 days. Compare
+realized fills against the backtest's modeled fills. If realized PnL is
+within ±20% of backtest PnL after fees/slippage, the modeling is honest. If
+it's worse than -50%, the backtest is hiding execution costs.
+
+**Where**: `signals/broker/` — new files for each broker, plus a scheduler
+script in `scripts/`.
+
+---
+
+## How to use this document
+
+When you ask "what should I work on next?", I'll consult this file and pick
+the highest-priority item that:
+
+1. has its prerequisites satisfied (e.g., #5 doesn't need anything; #8
+   benefits from #11 being in place);
+2. matches your current research focus; and
+3. has a clear validation path so we know if it worked.
+
+When an item completes, mark it with `[x]` and append a date + outcome line
+("CAGR went up 5pp on the 16-window eval; Sharpe unchanged"). Items that get
+disproven by their own validation should stay in the doc with the disproof
+recorded — that's how we avoid re-deriving the same negative result in six
+months.
+
+The companion file `scripts/HOMC_ORDER7_RESULTS.md` is the saved output of
+the Tier-0 experiment and is the first piece of evidence that should
+influence which Tier-1 items move ahead.
