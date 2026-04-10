@@ -55,6 +55,9 @@ ignore = [
     "SIM108", # ternary preference is stylistic
 ]
 
+[tool.ruff.lint.isort]
+known-first-party = ["signals"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = false
