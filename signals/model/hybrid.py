@@ -63,17 +63,22 @@ DEFAULT_ROUTING: dict[str, str] = {
 }
 
 # Routing strategies:
-#   "hmm"    — use the HMM regime detector's label (original design)
-#   "vol"    — hard binary switch: current 20d vol >= training 75th percentile
-#              → bear regime → composite, else bull → homc
-#              Stable, interpretable, no flipping on bar-level noise.
-#   "blend"  — continuous weighted blend of composite and HOMC, with the
-#              weight ramping linearly from 0 (full HOMC) at the low
-#              quantile to 1 (full composite) at the high quantile. Uses
-#              the same vol signal as "vol" but degrades smoothly through
-#              ambiguous vol regimes instead of switching hard. Preserves
-#              more of HOMC's peak return in transitional periods.
-ROUTING_STRATEGIES = ("hmm", "vol", "blend")
+#   "hmm"           — use the HMM regime detector's label (original design)
+#   "vol"           — hard binary switch at a FIXED vol quantile
+#   "blend"         — continuous linear ramp between low and high quantiles
+#   "adaptive_vol"  — hard binary switch where the vol quantile itself
+#                     adapts based on the recent vol regime. In a
+#                     high-vol recent regime (recent vol > training vol
+#                     median) it uses a HIGH threshold quantile (more
+#                     permissive of HOMC so we participate in
+#                     high-vol-but-still-bullish rallies). In a low-vol
+#                     recent regime it uses a LOW threshold quantile
+#                     (more aggressive bear-defense via composite). This
+#                     was the Tier-B #4 hypothesis: fixed quantiles might
+#                     be suboptimal because the right threshold depends
+#                     on the overall vol environment, not just the
+#                     per-bar value.
+ROUTING_STRATEGIES = ("hmm", "vol", "blend", "adaptive_vol")
 
 
 class HybridRegimeModel:
@@ -100,6 +105,9 @@ class HybridRegimeModel:
         vol_quantile_threshold: float = 0.75,
         blend_low_quantile: float = 0.50,
         blend_high_quantile: float = 0.85,
+        adaptive_low_quantile: float = 0.60,
+        adaptive_high_quantile: float = 0.80,
+        adaptive_lookback: int = 30,
     ):
         if regime_n_states not in (2, 3):
             raise ValueError("regime_n_states must be 2 or 3")
@@ -131,9 +139,19 @@ class HybridRegimeModel:
             raise ValueError(
                 "blend_low_quantile must be < blend_high_quantile and both in [0, 1]"
             )
+        self.adaptive_low_quantile = float(adaptive_low_quantile)
+        self.adaptive_high_quantile = float(adaptive_high_quantile)
+        self.adaptive_lookback = int(adaptive_lookback)
+        if not 0 <= self.adaptive_low_quantile < self.adaptive_high_quantile <= 1:
+            raise ValueError(
+                "adaptive_low_quantile must be < adaptive_high_quantile and both in [0, 1]"
+            )
         self._vol_threshold_value: float | None = None
         self._blend_low_value: float | None = None
         self._blend_high_value: float | None = None
+        self._adaptive_low_value: float | None = None
+        self._adaptive_high_value: float | None = None
+        self._adaptive_median_vol: float | None = None
         # Blend strategy precomputes the blended expected return at
         # predict_state time and exposes it via a synthetic 1-state
         # interface in predict_next/state_returns_. These fields hold
@@ -199,8 +217,9 @@ class HybridRegimeModel:
             # Vol-based routing: compute vol quantile(s) from the training
             # window. The "vol" strategy uses a single threshold for hard
             # switching; the "blend" strategy uses a low/high pair that
-            # defines a linear ramp for continuous weighting between the
-            # two components.
+            # defines a linear ramp; the "adaptive_vol" strategy uses a
+            # low/high pair plus a recent-vol pivot that selects between
+            # them based on the realized vol regime.
             vols = observations["volatility_20d"].dropna()
             if len(vols) < 10:
                 raise ValueError("Not enough vol observations to set threshold")
@@ -209,6 +228,13 @@ class HybridRegimeModel:
             )
             self._blend_low_value = float(vols.quantile(self.blend_low_quantile))
             self._blend_high_value = float(vols.quantile(self.blend_high_quantile))
+            self._adaptive_low_value = float(
+                vols.quantile(self.adaptive_low_quantile)
+            )
+            self._adaptive_high_value = float(
+                vols.quantile(self.adaptive_high_quantile)
+            )
+            self._adaptive_median_vol = float(vols.median())
             self.regime_detector = None
 
         # 2. Composite component — trained on the trailing
@@ -250,9 +276,32 @@ class HybridRegimeModel:
             assert self.regime_detector is not None
             state = self.regime_detector.predict_state(observations)
             return self.regime_detector.label(state)
-        # Vol-based: get the latest non-NaN 20d vol and compare to threshold.
-        # High vol → "bear" regime. Low vol → "bull" regime. "neutral" is
-        # unused by vol strategy (deliberately coarse binary).
+        if self.routing_strategy == "adaptive_vol":
+            # Adaptive: pick the low or high quantile threshold based on
+            # the RECENT vol regime. If the last `adaptive_lookback` bars
+            # of vol have a mean above the training median, we're in a
+            # high-vol environment — use the high quantile (more
+            # permissive, HOMC runs more often even on choppy days).
+            # Otherwise use the low quantile (more bear-defensive,
+            # composite runs on smaller vol spikes).
+            assert self._adaptive_low_value is not None
+            assert self._adaptive_high_value is not None
+            assert self._adaptive_median_vol is not None
+            vol_series = observations["volatility_20d"].dropna()
+            if vol_series.empty:
+                return "neutral"
+            current_vol = float(vol_series.iloc[-1])
+            recent_vols = vol_series.iloc[-self.adaptive_lookback :]
+            recent_mean = float(recent_vols.mean())
+            in_high_vol_regime = recent_mean > self._adaptive_median_vol
+            threshold = (
+                self._adaptive_high_value
+                if in_high_vol_regime
+                else self._adaptive_low_value
+            )
+            return "bear" if current_vol >= threshold else "bull"
+        # "vol" or "blend": get the latest non-NaN 20d vol and compare
+        # to threshold.
         assert self._vol_threshold_value is not None
         vol_series = observations["volatility_20d"].dropna()
         if vol_series.empty:
@@ -417,6 +466,12 @@ class HybridRegimeModel:
             "blend_high_quantile": self.blend_high_quantile,
             "blend_low_value": self._blend_low_value,
             "blend_high_value": self._blend_high_value,
+            "adaptive_low_quantile": self.adaptive_low_quantile,
+            "adaptive_high_quantile": self.adaptive_high_quantile,
+            "adaptive_lookback": self.adaptive_lookback,
+            "adaptive_low_value": self._adaptive_low_value,
+            "adaptive_high_value": self._adaptive_high_value,
+            "adaptive_median_vol": self._adaptive_median_vol,
             "fitted": self.fitted_,
             "files": {
                 "regime": f"{base.name}.regime.pkl",
@@ -452,6 +507,9 @@ class HybridRegimeModel:
             vol_quantile_threshold=manifest.get("vol_quantile_threshold", 0.75),
             blend_low_quantile=manifest.get("blend_low_quantile", 0.50),
             blend_high_quantile=manifest.get("blend_high_quantile", 0.85),
+            adaptive_low_quantile=manifest.get("adaptive_low_quantile", 0.60),
+            adaptive_high_quantile=manifest.get("adaptive_high_quantile", 0.80),
+            adaptive_lookback=manifest.get("adaptive_lookback", 30),
         )
         base = path.with_suffix("")
         if obj.routing_strategy == "hmm":
@@ -462,6 +520,9 @@ class HybridRegimeModel:
             obj._vol_threshold_value = manifest.get("vol_threshold_value")
             obj._blend_low_value = manifest.get("blend_low_value")
             obj._blend_high_value = manifest.get("blend_high_value")
+            obj._adaptive_low_value = manifest.get("adaptive_low_value")
+            obj._adaptive_high_value = manifest.get("adaptive_high_value")
+            obj._adaptive_median_vol = manifest.get("adaptive_median_vol")
         obj.composite = CompositeMarkovChain.load(
             base.with_name(base.name + ".composite.json")
         )

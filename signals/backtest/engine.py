@@ -62,7 +62,7 @@ class BacktestConfig:
     # composite). See scripts/HOMC_TIER0C_HYBRID_RESULTS.md for the
     # comparison.
     hybrid_routing: dict[str, str] | None = None
-    hybrid_routing_strategy: str = "vol"   # "hmm", "vol", or "blend"
+    hybrid_routing_strategy: str = "vol"   # "hmm", "vol", "blend", or "adaptive_vol"
     # Default 0.70 comes from the Tier-0e vol quantile sweep on BTC-USD:
     # q=0.70 produced median Sharpe 2.15 across 16 random 6-month windows,
     # vs 1.92 at the ad-hoc q=0.75 default. See scripts/HOMC_TIER0E_RESULTS.md.
@@ -72,6 +72,9 @@ class BacktestConfig:
     hybrid_vol_quantile: float = 0.70
     hybrid_blend_low: float = 0.50         # blend ramp lower quantile
     hybrid_blend_high: float = 0.85        # blend ramp upper quantile
+    hybrid_adaptive_low: float = 0.60      # adaptive-vol low-regime threshold quantile
+    hybrid_adaptive_high: float = 0.80     # adaptive-vol high-regime threshold quantile
+    hybrid_adaptive_lookback: int = 30     # bars of recent vol to average for regime detection
     # Trend-filter models (for equity indices — see signals/model/trend.py):
     trend_window: int = 200                # single-MA trend filter window
     trend_fast_window: int = 50            # dual-MA fast window
@@ -181,6 +184,9 @@ class BacktestEngine:
                 vol_quantile_threshold=cfg.hybrid_vol_quantile,
                 blend_low_quantile=cfg.hybrid_blend_low,
                 blend_high_quantile=cfg.hybrid_blend_high,
+                adaptive_low_quantile=cfg.hybrid_adaptive_low,
+                adaptive_high_quantile=cfg.hybrid_adaptive_high,
+                adaptive_lookback=cfg.hybrid_adaptive_lookback,
             )
         raise ValueError(f"unknown model_type: {cfg.model_type!r}")
 

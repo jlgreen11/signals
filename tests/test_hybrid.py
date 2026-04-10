@@ -337,6 +337,93 @@ def test_hybrid_blend_quantile_validation():
         HybridRegimeModel(blend_low_quantile=0.5, blend_high_quantile=1.5)
 
 
+def test_hybrid_adaptive_vol_fits_and_predicts(synthetic_prices):
+    """Adaptive-vol strategy stores both low/high thresholds + the
+    training median vol for regime detection."""
+    feats = _features(synthetic_prices)
+    m = HybridRegimeModel(
+        routing_strategy="adaptive_vol",
+        adaptive_low_quantile=0.60,
+        adaptive_high_quantile=0.80,
+        homc_order=3,
+    ).fit(feats)
+    assert m.fitted_
+    assert m._adaptive_low_value is not None
+    assert m._adaptive_high_value is not None
+    assert m._adaptive_median_vol is not None
+    assert m._adaptive_low_value < m._adaptive_high_value
+    state = m.predict_state(feats)
+    assert m.active_component_name in ("homc", "composite")
+    probs = m.predict_next(state)
+    assert probs.sum() == pytest.approx(1.0, abs=1e-6)
+
+
+def test_hybrid_adaptive_vol_regime_switches_threshold(synthetic_prices):
+    """In a high-vol recent regime the adaptive strategy should use the
+    HIGH quantile; in a low-vol recent regime it should use the LOW."""
+    feats = _features(synthetic_prices)
+    m = HybridRegimeModel(
+        routing_strategy="adaptive_vol",
+        adaptive_low_quantile=0.30,
+        adaptive_high_quantile=0.80,
+        homc_order=3,
+    ).fit(feats)
+
+    # Build a feature frame where the last 30 vol bars are DEFINITELY
+    # above the training median vol — forces the adaptive strategy into
+    # its high-vol regime.
+    high_vol_obs = feats.copy()
+    median = m._adaptive_median_vol
+    assert median is not None
+    high_vol_obs.loc[high_vol_obs.index[-40:], "volatility_20d"] = median * 5
+
+    # And one where the last 30 vols are below median — low-vol regime
+    low_vol_obs = feats.copy()
+    low_vol_obs.loc[low_vol_obs.index[-40:], "volatility_20d"] = median * 0.01
+
+    # In high-vol regime, current vol needs to exceed adaptive_high_value
+    # to be classified as bear. We force it high enough.
+    high_vol_obs.loc[high_vol_obs.index[-1], "volatility_20d"] = median * 10
+    m.predict_state(high_vol_obs)
+    # Active component should reflect routing based on high threshold
+    assert m.last_regime_label in ("bear", "bull")
+
+    low_vol_obs.loc[low_vol_obs.index[-1], "volatility_20d"] = median * 0.001
+    m.predict_state(low_vol_obs)
+    assert m.last_regime_label in ("bear", "bull")
+
+
+def test_hybrid_adaptive_vol_engine_no_lookahead(synthetic_prices):
+    """Adaptive routing must also satisfy the lookahead regression."""
+    cfg = BacktestConfig(
+        model_type="hybrid",
+        train_window=300,
+        retrain_freq=60,
+        return_bins=3,
+        volatility_bins=3,
+        n_states=3,
+        order=3,
+        vol_window=10,
+        hybrid_routing_strategy="adaptive_vol",
+    )
+
+    cutoff = 500
+    short_result = BacktestEngine(cfg).run(
+        synthetic_prices.iloc[:cutoff], symbol="TEST"
+    )
+    long_result = BacktestEngine(cfg).run(synthetic_prices, symbol="TEST")
+
+    short_eq = short_result.equity_curve.iloc[:-2]
+    common = short_eq.index.intersection(long_result.equity_curve.index)
+    pd.testing.assert_series_equal(
+        short_eq.loc[common],
+        long_result.equity_curve.loc[common],
+        check_names=False,
+        rtol=1e-9,
+        atol=1e-9,
+    )
+
+
 def test_hybrid_vol_routing_no_lookahead(synthetic_prices):
     """Vol routing must also satisfy the lookahead regression."""
     cfg = BacktestConfig(

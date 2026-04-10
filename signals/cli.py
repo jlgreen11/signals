@@ -986,6 +986,159 @@ def backtest_sweep(
             console.print(f"[red]Holdout validation failed:[/red] {e}")
 
 
+@backtest_app.command("portfolio")
+def backtest_portfolio(
+    spec: list[str] = typer.Argument(
+        ...,
+        help="Allocations as 'SYMBOL:WEIGHT:MODEL' triples, e.g. "
+             "'BTC-USD:0.4:hybrid ^GSPC:0.6:bh'. 'bh' means buy-and-hold.",
+    ),
+    start: str | None = typer.Option(None, "--start"),
+    end: str | None = typer.Option(None, "--end"),
+    interval: str = typer.Option("1d", "--interval"),
+    rebalance: str = typer.Option("daily", "--rebalance", help="'daily' or 'window'"),
+    train_window: int = typer.Option(1000, "--train-window"),
+    states: int = typer.Option(5, "--states"),
+    order: int = typer.Option(5, "--order"),
+    vol_quantile: float = typer.Option(0.70, "--vol-quantile"),
+    plot: bool = typer.Option(True, "--plot/--no-plot"),
+) -> None:
+    """Run a multi-asset portfolio backtest.
+
+    Each allocation is given as 'SYMBOL:WEIGHT:MODEL' where MODEL is one
+    of {composite, hmm, homc, hybrid, trend, golden_cross, bh}. 'bh'
+    means buy-and-hold (no model, no training). Weights must sum to 1.0.
+
+    Example:
+        signals backtest portfolio BTC-USD:0.4:hybrid ^GSPC:0.6:bh \\
+            --start 2018-01-01 --end 2024-12-31 --rebalance daily
+
+    The Tier-2 finding: 40/60 BTC hybrid / S&P B&H with daily rebalance
+    produces median Sharpe 2.44 at seed 42 and averages Sharpe +16% over
+    BTC-alone across 4 seeds. See scripts/BTC_SP500_PORTFOLIO_RESULTS.md.
+    """
+    from signals.backtest.metrics import compute_metrics
+    from signals.backtest.portfolio_blend import (
+        PortfolioAllocation,
+        run_portfolio_backtest,
+    )
+
+    if rebalance not in ("daily", "window"):
+        raise typer.BadParameter("--rebalance must be 'daily' or 'window'")
+
+    allocations: list[PortfolioAllocation] = []
+    for token in spec:
+        parts = token.split(":")
+        if len(parts) != 3:
+            raise typer.BadParameter(
+                f"spec must be 'SYMBOL:WEIGHT:MODEL'; got {token!r}"
+            )
+        sym, weight_s, model_s = parts
+        try:
+            weight = float(weight_s)
+        except ValueError as e:
+            raise typer.BadParameter(f"invalid weight {weight_s!r}") from e
+
+        if model_s == "bh":
+            cfg = None
+        elif model_s == "hybrid":
+            cfg = BacktestConfig(
+                model_type="hybrid",
+                train_window=train_window,
+                retrain_freq=21,
+                n_states=states,
+                order=order,
+                return_bins=3,
+                volatility_bins=3,
+                vol_window=10,
+                laplace_alpha=0.01,
+                hybrid_routing_strategy="vol",
+                hybrid_vol_quantile=vol_quantile,
+            )
+        elif model_s in ("composite", "hmm", "homc", "trend", "golden_cross"):
+            cfg = BacktestConfig(
+                model_type=model_s,
+                train_window=train_window,
+                retrain_freq=21,
+                n_states=states,
+                order=order,
+            )
+        else:
+            raise typer.BadParameter(
+                f"unknown model {model_s!r}; must be composite/hmm/homc/"
+                f"hybrid/trend/golden_cross/bh"
+            )
+        allocations.append(PortfolioAllocation(symbol=sym, cfg=cfg, weight=weight))
+
+    total_weight = sum(a.weight for a in allocations)
+    if not (0.999 <= total_weight <= 1.001):
+        raise typer.BadParameter(f"weights must sum to 1.0; got {total_weight}")
+
+    prices_by_symbol: dict[str, pd.DataFrame] = {}
+    for alloc in allocations:
+        prices = _store().load(alloc.symbol, interval)
+        if prices.empty:
+            raise typer.BadParameter(
+                f"No data for {alloc.symbol}; run `signals data fetch` first."
+            )
+        prices_by_symbol[alloc.symbol] = prices
+
+    start_ts = pd.Timestamp(start, tz="UTC") if start else None
+    end_ts = pd.Timestamp(end, tz="UTC") if end else None
+
+    console.print(
+        f"[bold]Running portfolio[/bold] "
+        f"({', '.join(f'{a.symbol}={a.weight*100:.0f}%' for a in allocations)}) "
+        f"with {rebalance} rebalance"
+    )
+    port_eq = run_portfolio_backtest(
+        allocations=allocations,
+        prices_by_symbol=prices_by_symbol,
+        rebalance=rebalance,
+        start=start_ts,
+        end=end_ts,
+    )
+    if port_eq.empty:
+        console.print("[red]Empty portfolio equity curve[/red]")
+        raise typer.Exit(1)
+
+    metrics = compute_metrics(port_eq, [])
+    table = Table(title="Portfolio backtest result")
+    table.add_column("Metric")
+    table.add_column("Value")
+    rows = [
+        ("Start", str(port_eq.index[0].date()) if hasattr(port_eq.index[0], "date") else str(port_eq.index[0])),
+        ("End", str(port_eq.index[-1].date()) if hasattr(port_eq.index[-1], "date") else str(port_eq.index[-1])),
+        ("Bars", str(len(port_eq))),
+        ("Final equity", f"${metrics.final_equity:,.2f}"),
+        ("CAGR", f"{metrics.cagr * 100:.2f}%"),
+        ("Sharpe", f"{metrics.sharpe:.2f}"),
+        ("Max DD", f"{metrics.max_drawdown * 100:.2f}%"),
+        ("Calmar", f"{metrics.calmar:.2f}"),
+    ]
+    for r in rows:
+        table.add_row(*r)
+    console.print(table)
+
+    if plot:
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+        port_eq.plot(ax=ax, label="Portfolio", linewidth=2)
+        ax.set_title(
+            f"Portfolio: {', '.join(f'{a.symbol} {a.weight*100:.0f}%' for a in allocations)}"
+        )
+        ax.set_ylabel("Equity ($)")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        out_path = Path(
+            "portfolio_" + "_".join(_safe_symbol(a.symbol) for a in allocations) + ".png"
+        )
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=120)
+        console.print(f"[green]Saved[/green] plot → {out_path}")
+
+
 @backtest_app.command("list")
 def backtest_list() -> None:
     df = _store().list_backtests()
