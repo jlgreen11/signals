@@ -54,35 +54,57 @@ non-bottleneck.
 
 ---
 
-### 0a. (Recommended next test) Larger train window + lower order
+### 0a. Larger train window + lower order — **[x] DONE 2026-04-10 — INCONCLUSIVE**
 
-**Question**: Does the HOMC become tradeable with order=5 and a 1000-bar
-training window, where there's enough data per fit to populate the k-tuple
-table densely?
+**Result**: Mixed — strict decision rule says demote, but a controlled
+composite baseline run on the same data reveals genuine HOMC-specific
+out-of-sample structure that the conventional rule would miss. See
+`scripts/HOMC_ORDER5_W1000_RESULTS.md` for the full analysis. Headline:
 
-**How to run**:
+| | HOMC@order=5 | Composite@3×3 |
+|---|---:|---:|
+| In-sample Sharpe (2015-2022) | 0.42 | **0.62** |
+| **Holdout Sharpe** (2023-2024) | **1.76** | 0.63 |
+| Holdout CAGR | **110.1%** | 11.8% |
+| In→Out Sharpe ratio | **4.2×** | 1.0× |
+| DSR (in-sample) | 0.00 | 0.00 |
 
-```bash
-signals backtest sweep BTC-USD --model homc \
-  --start 2015-01-01 --end 2024-12-31 \
-  --states 5 --order 5 \
-  --train-window 1000 \
-  --buy-grid "10,15,20,25,30" \
-  --sell-grid "-10,-15,-20,-25,-30" \
-  --stop-grid "0" \
-  --no-short \
-  --rank-by sharpe \
-  --top 10 \
-  --holdout-frac 0.2
-```
+The composite baseline is the critical control: if HOMC's holdout strength
+were just an artifact of 2023-2024 being a friendly period, the composite
+should also have shown a Sharpe lift. It didn't (0.63 → 0.63). The HOMC
+found something the composite cannot find. But the in-sample 0.42 Sharpe
+means a live operator running this from 2015 would have killed the model
+years before the magic period.
 
-**Decision rule**:
+**Verdict**: INCONCLUSIVE. Neither promote nor demote until the
+confirmatory experiments below run.
 
-- **DSR > 0.5 AND holdout Sharpe ≥ 0.5** → HOMC is salvageable with the
-  right window size; build Tier-1 #1 (AbsoluteGranularityEncoder) and #2
-  (order/granularity sweep) so we can find the right operating point.
-- **Otherwise** → HOMC is permanently a research-only backend; production
-  default stays composite-3×3 plus the Tier-1 #5/#6 sizing improvements.
+**A note on DSR**: this is the first experiment in the project where the
+deflated Sharpe was *misleading* rather than corrective. DSR = 0.00
+correctly identified the in-sample as indistinguishable from noise, but
+it cannot tell you when an in-sample-noisy model has out-of-sample
+structure visible from a clean holdout against a controlled baseline.
+The right rule is "DSR is the bar for the in-sample result; out-of-sample
+validation against a control is the bar for the strategy."
+
+### 0b. Confirmatory experiments before HOMC verdict
+
+These come ahead of any new code work, in this order of evidence-per-cost:
+
+1. **Slide the holdout to 30%** (`--holdout-frac 0.3`). Adds the late-2022
+   bear into the test set. If holdout Sharpe stays > 1, the result
+   generalizes beyond a single bull window.
+2. **Add HOMC to the random-window evaluation.** Modify
+   `scripts/random_window_eval.py` to include HOMC@order=5/window=1000
+   alongside composite. If HOMC beats composite in > 9/16 random windows,
+   it's a real upgrade. If it ties or loses, the in-sample weakness
+   dominates.
+3. **Multi-asset.** Same sweep on ETH-USD and SOL-USD. If the holdout
+   strength holds on a second asset, the HOMC structure is general; if
+   not, BTC-2023-2024 is unique.
+4. **Lower-order controls.** Same sweep at order=3 and order=4. If the
+   holdout strength persists at lower orders, it comes from the wider
+   window not the higher memory.
 
 ---
 
