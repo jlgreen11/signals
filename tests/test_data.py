@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pandas as pd
-import pytest
 
 from signals.data.base import DataSource
 from signals.data.pipeline import DataPipeline

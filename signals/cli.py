@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -12,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine, BacktestResult
+from signals.backtest.metrics import deflated_sharpe_ratio
 from signals.config import SETTINGS
 from signals.data.pipeline import DataPipeline
 from signals.data.storage import DataStore
@@ -66,6 +66,27 @@ def _validate_model(model_type: str) -> None:
         raise typer.BadParameter(f"--model must be one of {sorted(VALID_MODELS)}")
 
 
+def _split_holdout(
+    prices: pd.DataFrame, holdout_frac: float
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Slice the trailing `holdout_frac` of `prices` off as a held-out set.
+
+    Returns (train_portion, holdout_portion). The holdout is contiguous and
+    chronologically *after* the train portion, so it can be used to validate
+    a strategy whose hyperparameters were tuned on the train portion only.
+
+    A holdout_frac outside (0, 1) returns the full series and an empty
+    holdout, which makes "no holdout" a no-op for callers.
+    """
+    if holdout_frac <= 0 or holdout_frac >= 1:
+        return prices, prices.iloc[0:0]
+    n = len(prices)
+    split = int(n * (1 - holdout_frac))
+    if split <= 0 or split >= n:
+        return prices, prices.iloc[0:0]
+    return prices.iloc[:split], prices.iloc[split:]
+
+
 # ============================================================
 # data
 # ============================================================
@@ -73,7 +94,7 @@ def _validate_model(model_type: str) -> None:
 def data_fetch(
     symbol: str,
     start: str = typer.Option(..., "--start"),
-    end: Optional[str] = typer.Option(None, "--end"),
+    end: str | None = typer.Option(None, "--end"),
     interval: str = typer.Option("1d", "--interval"),
 ) -> None:
     pipeline = _pipeline()
@@ -165,7 +186,7 @@ def model_train(
     states: int = typer.Option(4, "--states", help="Number of (hidden or quantile) states"),
     order: int = typer.Option(3, "--order", help="HOMC order (only for --model homc)"),
     n_iter: int = typer.Option(200, "--n-iter", help="HMM EM iterations (only for --model hmm)"),
-    window: Optional[int] = typer.Option(None, "--window"),
+    window: int | None = typer.Option(None, "--window"),
     interval: str = typer.Option("1d", "--interval"),
 ) -> None:
     _validate_model(model)
@@ -280,7 +301,7 @@ def model_plot(
     symbol: str,
     model: str = typer.Option("hmm", "--model"),
     interval: str = typer.Option("1d", "--interval"),
-    output: Optional[Path] = typer.Option(None, "--output"),
+    output: Path | None = typer.Option(None, "--output"),
 ) -> None:
     _validate_model(model)
     import matplotlib.pyplot as plt
@@ -564,8 +585,8 @@ def _persist_backtest(result: BacktestResult, model_type: str) -> int:
 def backtest_run(
     symbol: str,
     model: str = typer.Option("composite", "--model"),
-    start: Optional[str] = typer.Option(None, "--start"),
-    end: Optional[str] = typer.Option(None, "--end"),
+    start: str | None = typer.Option(None, "--start"),
+    end: str | None = typer.Option(None, "--end"),
     interval: str = typer.Option("1d", "--interval"),
     states: int = typer.Option(9, "--states"),
     order: int = typer.Option(3, "--order"),
@@ -582,12 +603,30 @@ def backtest_run(
     stop_loss_pct: float = typer.Option(0.0, "--stop-loss"),
     stop_cooldown: int = typer.Option(5, "--stop-cooldown"),
     min_trade: float = typer.Option(0.20, "--min-trade"),
+    holdout_frac: float = typer.Option(
+        0.0, "--holdout-frac",
+        help="Reserve trailing fraction of data as a held-out validation set "
+             "(e.g. 0.2 for the last 20%). Strategy is run on the train portion; "
+             "the held-out window is then evaluated separately for validation.",
+    ),
     plot: bool = typer.Option(True, "--plot/--no-plot"),
 ) -> None:
     _validate_model(model)
     prices = _store().load(symbol, interval)
     if prices.empty:
         raise typer.BadParameter(f"No data for {symbol}; run `signals data fetch` first.")
+
+    # Apply --start / --end first, then carve off the holdout from the remainder.
+    if start is not None:
+        prices = prices.loc[prices.index >= pd.Timestamp(start, tz=prices.index.tz or "UTC")]
+    if end is not None:
+        prices = prices.loc[prices.index <= pd.Timestamp(end, tz=prices.index.tz or "UTC")]
+    train_prices, holdout_prices = _split_holdout(prices, holdout_frac)
+    if not holdout_prices.empty:
+        console.print(
+            f"[dim]holdout reserved: {holdout_prices.index[0].date()} → "
+            f"{holdout_prices.index[-1].date()} ({len(holdout_prices)} bars)[/dim]"
+        )
 
     cfg = _build_config(
         model, states, order, train_window, retrain_freq,
@@ -599,10 +638,47 @@ def backtest_run(
         vol_window=vol_window, laplace_alpha=laplace_alpha,
     )
     engine = BacktestEngine(cfg)
-    result = engine.run(prices, symbol=symbol, start=start, end=end)
+    result = engine.run(train_prices, symbol=symbol)
     _print_backtest_table(result, model.upper())
     run_id = _persist_backtest(result, model)
     console.print(f"[green]Recorded[/green] backtest run [bold]{run_id}[/bold]")
+
+    # Validate on the held-out portion using the same config.
+    if not holdout_prices.empty:
+        # The engine needs train_window bars before the holdout to warm up,
+        # so feed it the trailing slice of train_prices stitched onto the holdout.
+        warmup = train_prices.iloc[-(train_window + cfg.vol_window + 5):]
+        holdout_with_warmup = pd.concat([warmup, holdout_prices])
+        holdout_with_warmup = holdout_with_warmup[~holdout_with_warmup.index.duplicated()]
+        holdout_result = BacktestEngine(cfg).run(holdout_with_warmup, symbol=symbol)
+        # Trim equity curve to the holdout window for fair reporting.
+        holdout_eq = holdout_result.equity_curve.loc[
+            holdout_result.equity_curve.index >= holdout_prices.index[0]
+        ]
+        from signals.backtest.metrics import compute_metrics
+
+        if not holdout_eq.empty:
+            normalized = (holdout_eq / holdout_eq.iloc[0]) * cfg.initial_cash
+            holdout_metrics = compute_metrics(
+                normalized, holdout_result.trades, risk_free_rate=cfg.risk_free_rate
+            )
+            console.print()
+            console.print("[bold yellow]Held-out validation[/bold yellow]")
+            ht = Table(title=f"Holdout — {symbol} ({model.upper()})")
+            ht.add_column("Metric")
+            ht.add_column("Train (in-sample)")
+            ht.add_column("Holdout (out-of-sample)")
+            train_m = result.metrics
+            rows = [
+                ("CAGR", f"{train_m.cagr * 100:.2f}%", f"{holdout_metrics.cagr * 100:.2f}%"),
+                ("Sharpe", f"{train_m.sharpe:.2f}", f"{holdout_metrics.sharpe:.2f}"),
+                ("Max DD", f"{train_m.max_drawdown * 100:.2f}%", f"{holdout_metrics.max_drawdown * 100:.2f}%"),
+                ("Calmar", f"{train_m.calmar:.2f}", f"{holdout_metrics.calmar:.2f}"),
+                ("# trades", str(train_m.n_trades), str(holdout_metrics.n_trades)),
+            ]
+            for r in rows:
+                ht.add_row(*r)
+            console.print(ht)
 
     if plot and not result.equity_curve.empty:
         import matplotlib.pyplot as plt
@@ -623,8 +699,8 @@ def backtest_run(
 @backtest_app.command("compare")
 def backtest_compare(
     symbol: str,
-    start: Optional[str] = typer.Option(None, "--start"),
-    end: Optional[str] = typer.Option(None, "--end"),
+    start: str | None = typer.Option(None, "--start"),
+    end: str | None = typer.Option(None, "--end"),
     interval: str = typer.Option("1d", "--interval"),
     hmm_states: int = typer.Option(4, "--hmm-states"),
     homc_states: int = typer.Option(5, "--homc-states"),
@@ -736,8 +812,8 @@ def backtest_compare(
 def backtest_sweep(
     symbol: str,
     model: str = typer.Option("composite", "--model"),
-    start: Optional[str] = typer.Option(None, "--start"),
-    end: Optional[str] = typer.Option(None, "--end"),
+    start: str | None = typer.Option(None, "--start"),
+    end: str | None = typer.Option(None, "--end"),
     interval: str = typer.Option("1d", "--interval"),
     states: int = typer.Option(9, "--states"),
     order: int = typer.Option(3, "--order"),
@@ -750,12 +826,29 @@ def backtest_sweep(
     allow_short: bool = typer.Option(True, "--short/--no-short"),
     rank_by: str = typer.Option("calmar", "--rank-by", help="calmar | sharpe | cagr | final"),
     top: int = typer.Option(10, "--top"),
+    holdout_frac: float = typer.Option(
+        0.0, "--holdout-frac",
+        help="Reserve trailing fraction of data as a held-out validation set. "
+             "Top configs are re-run on the holdout for an honest out-of-sample read.",
+    ),
 ) -> None:
     """Grid-search buy/sell thresholds and stop-loss; print top configs."""
     _validate_model(model)
     prices = _store().load(symbol, interval)
     if prices.empty:
         raise typer.BadParameter(f"No data for {symbol}; run `signals data fetch` first.")
+
+    # Apply --start / --end first, then carve off the holdout from the remainder.
+    if start is not None:
+        prices = prices.loc[prices.index >= pd.Timestamp(start, tz=prices.index.tz or "UTC")]
+    if end is not None:
+        prices = prices.loc[prices.index <= pd.Timestamp(end, tz=prices.index.tz or "UTC")]
+    train_prices, holdout_prices = _split_holdout(prices, holdout_frac)
+    if not holdout_prices.empty:
+        console.print(
+            f"[dim]holdout reserved: {holdout_prices.index[0].date()} → "
+            f"{holdout_prices.index[-1].date()} ({len(holdout_prices)} bars)[/dim]"
+        )
 
     buy_vals = [float(x) for x in buy_grid.split(",")]
     sell_vals = [float(x) for x in sell_grid.split(",")]
@@ -788,7 +881,7 @@ def backtest_sweep(
                     stop_loss_pct=stp,
                 )
                 try:
-                    res = BacktestEngine(cfg).run(prices, symbol=symbol, start=start, end=end)
+                    res = BacktestEngine(cfg).run(train_prices, symbol=symbol)
                 except Exception as e:
                     log_local = get_logger("sweep")
                     log_local.warning("config failed (b=%s s=%s stop=%s): %s", b, s, stp, e)
@@ -799,6 +892,8 @@ def backtest_sweep(
                     "final": m.final_equity, "cagr": m.cagr, "sharpe": m.sharpe,
                     "mdd": m.max_drawdown, "calmar": m.calmar, "trades": m.n_trades,
                     "_metrics": m,
+                    "_cfg": cfg,
+                    "_n_obs": len(res.equity_curve),
                 })
 
     if not results:
@@ -806,12 +901,25 @@ def backtest_sweep(
         return
 
     results.sort(key=lambda r: keyf(r["_metrics"]), reverse=True)
-    bench_metrics = BacktestEngine(_build_config(model, states, order, train_window, retrain_freq)).run(prices, symbol=symbol, start=start, end=end).benchmark_metrics
 
-    table = Table(title=f"Sweep top {top} by {rank_by} — {symbol} ({model.upper()})")
-    for col in ("buy_bps", "sell_bps", "stop", "final", "CAGR", "Sharpe", "Max DD", "Calmar", "trades"):
+    # Deflated Sharpe corrects for the multiple-testing problem inherent in
+    # grid search: a sweep over N configs will produce a "best" Sharpe even
+    # against pure noise. DSR is the probability that the observed Sharpe is
+    # better than the expected max of N IID Sharpe estimates under H0 (true
+    # SR=0). DSR > 0.95 is the conventional bar for "this isn't just noise".
+    n_trials = len(results)
+    bench_metrics = BacktestEngine(
+        _build_config(model, states, order, train_window, retrain_freq)
+    ).run(train_prices, symbol=symbol).benchmark_metrics
+
+    table = Table(title=f"Sweep top {top} by {rank_by} — {symbol} ({model.upper()}) — N={n_trials} trials")
+    for col in ("buy_bps", "sell_bps", "stop", "final", "CAGR", "Sharpe", "DSR", "Max DD", "Calmar", "trades"):
         table.add_column(col)
     for r in results[:top]:
+        dsr = deflated_sharpe_ratio(
+            sharpe=r["sharpe"], n_trials=n_trials, n_observations=r["_n_obs"]
+        )
+        dsr_color = "green" if dsr >= 0.95 else ("yellow" if dsr >= 0.80 else "red")
         table.add_row(
             f"{r['buy_bps']:.0f}",
             f"{r['sell_bps']:.0f}",
@@ -819,16 +927,63 @@ def backtest_sweep(
             f"${r['final']:,.0f}",
             f"{r['cagr'] * 100:.1f}%",
             f"{r['sharpe']:.2f}",
+            f"[{dsr_color}]{dsr:.2f}[/{dsr_color}]",
             f"{r['mdd'] * 100:.1f}%",
             f"{r['calmar']:.2f}",
             str(r['trades']),
         )
     console.print(table)
     console.print(
+        "[dim]DSR = deflated Sharpe probability. Bailey & López de Prado (2014). "
+        "DSR ≥ 0.95 is the conventional bar for 'survives the multi-trial deflation'.[/dim]"
+    )
+    console.print(
         f"[dim]Buy & hold benchmark: ${bench_metrics.final_equity:,.0f}, "
         f"CAGR {bench_metrics.cagr * 100:.1f}%, MDD {bench_metrics.max_drawdown * 100:.1f}%, "
         f"Calmar {bench_metrics.calmar:.2f}[/dim]"
     )
+
+    # Re-run the top config on the held-out portion for an honest OOS read.
+    if not holdout_prices.empty:
+        from signals.backtest.metrics import compute_metrics
+
+        best = results[0]
+        best_cfg = best["_cfg"]
+        warmup = train_prices.iloc[-(best_cfg.train_window + best_cfg.vol_window + 5):]
+        holdout_with_warmup = pd.concat([warmup, holdout_prices])
+        holdout_with_warmup = holdout_with_warmup[~holdout_with_warmup.index.duplicated()]
+        try:
+            holdout_res = BacktestEngine(best_cfg).run(holdout_with_warmup, symbol=symbol)
+            holdout_eq = holdout_res.equity_curve.loc[
+                holdout_res.equity_curve.index >= holdout_prices.index[0]
+            ]
+            if not holdout_eq.empty:
+                normalized = (holdout_eq / holdout_eq.iloc[0]) * best_cfg.initial_cash
+                holdout_metrics = compute_metrics(
+                    normalized, holdout_res.trades, risk_free_rate=best_cfg.risk_free_rate
+                )
+                console.print()
+                console.print(
+                    f"[bold yellow]Best config validated on holdout[/bold yellow] "
+                    f"(buy={best['buy_bps']:.0f} sell={best['sell_bps']:.0f} stop={best['stop'] * 100:.0f}%)"
+                )
+                ht = Table(title=f"Holdout — {symbol} ({model.upper()})")
+                ht.add_column("Metric")
+                ht.add_column("Train (in-sample)")
+                ht.add_column("Holdout (out-of-sample)")
+                tm = best["_metrics"]
+                rows = [
+                    ("CAGR", f"{tm.cagr * 100:.2f}%", f"{holdout_metrics.cagr * 100:.2f}%"),
+                    ("Sharpe", f"{tm.sharpe:.2f}", f"{holdout_metrics.sharpe:.2f}"),
+                    ("Max DD", f"{tm.max_drawdown * 100:.2f}%", f"{holdout_metrics.max_drawdown * 100:.2f}%"),
+                    ("Calmar", f"{tm.calmar:.2f}", f"{holdout_metrics.calmar:.2f}"),
+                    ("# trades", str(tm.n_trades), str(holdout_metrics.n_trades)),
+                ]
+                for r in rows:
+                    ht.add_row(*r)
+                console.print(ht)
+        except Exception as e:
+            console.print(f"[red]Holdout validation failed:[/red] {e}")
 
 
 @backtest_app.command("list")

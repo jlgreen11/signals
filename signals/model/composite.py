@@ -47,7 +47,7 @@ class CompositeMarkovChain:
         return_feature: str = "return_1d",
         volatility_feature: str = "volatility_20d",
         return_col: str = "return_1d",
-    ) -> "CompositeMarkovChain":
+    ) -> CompositeMarkovChain:
         self.return_feature_ = return_feature
         self.volatility_feature_ = volatility_feature
         self.return_col_ = return_col
@@ -162,7 +162,7 @@ class CompositeMarkovChain:
         path.write_text(json.dumps(payload))
 
     @classmethod
-    def load(cls, path: Path | str) -> "CompositeMarkovChain":
+    def load(cls, path: Path | str) -> CompositeMarkovChain:
         d = json.loads(Path(path).read_text())
         obj = cls(
             return_bins=d["return_bins"],

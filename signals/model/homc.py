@@ -64,7 +64,7 @@ class HigherOrderMarkovChain:
         observations: pd.DataFrame,
         feature_col: str = "return_1d",
         return_col: str = "return_1d",
-    ) -> "HigherOrderMarkovChain":
+    ) -> HigherOrderMarkovChain:
         self.feature_col_ = feature_col
         self.return_col_ = return_col
 
@@ -246,7 +246,7 @@ class HigherOrderMarkovChain:
         path.write_text(json.dumps(payload))
 
     @classmethod
-    def load(cls, path: Path | str) -> "HigherOrderMarkovChain":
+    def load(cls, path: Path | str) -> HigherOrderMarkovChain:
         d = json.loads(Path(path).read_text())
         obj = cls(n_states=d["n_states"], order=d["order"], alpha=d["alpha"])
         obj.feature_col_ = d["feature_col"]

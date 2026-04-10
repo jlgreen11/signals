@@ -46,6 +46,9 @@ class BacktestConfig:
     order: int = 3                    # homc only
     vol_window: int = 10              # tightened: short window reacts faster to vol regimes
     n_iter: int = 200                 # hmm only
+    n_init: int = 1                   # hmm only — multi-start, keeps best LL
+    tol: float = 1e-3                 # hmm only — EM convergence tolerance
+    strict_convergence: bool = False  # hmm only — raise if not converged
     random_state: int = 42
     laplace_alpha: float = 0.01       # tightened: low smoothing for composite (1.0 for hmm/homc)
     initial_cash: float = 10_000.0
@@ -61,6 +64,7 @@ class BacktestConfig:
     stop_cooldown_bars: int = 5
     min_trade_fraction: float = 0.20  # don't rebalance for changes smaller than this
     hold_preserves_position: bool = True  # HOLD signal keeps current position (trend-follow)
+    risk_free_rate: float = 0.0       # annualized; subtracted in Sharpe calc
 
 
 @dataclass
@@ -105,6 +109,9 @@ class BacktestEngine:
             return HiddenMarkovModel(
                 n_states=cfg.n_states,
                 n_iter=cfg.n_iter,
+                n_init=cfg.n_init,
+                tol=cfg.tol,
+                strict_convergence=cfg.strict_convergence,
                 random_state=cfg.random_state,
             )
         if cfg.model_type == "homc":
@@ -266,8 +273,12 @@ class BacktestEngine:
         else:
             bench = pd.Series(dtype=float, name="benchmark")
 
-        metrics = compute_metrics(equity_curve, portfolio.trades)
-        bench_metrics = compute_metrics(bench, [])
+        metrics = compute_metrics(
+            equity_curve, portfolio.trades, risk_free_rate=self.config.risk_free_rate
+        )
+        bench_metrics = compute_metrics(
+            bench, [], risk_free_rate=self.config.risk_free_rate
+        )
 
         return BacktestResult(
             config=self.config,

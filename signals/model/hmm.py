@@ -40,6 +40,9 @@ class HiddenMarkovModel:
         n_iter: int = 200,
         random_state: int = 42,
         covariance_type: str = "diag",
+        n_init: int = 1,
+        tol: float = 1e-3,
+        strict_convergence: bool = False,
     ):
         if n_states < 2:
             raise ValueError("n_states must be >= 2")
@@ -47,6 +50,9 @@ class HiddenMarkovModel:
         self.n_iter = int(n_iter)
         self.random_state = int(random_state)
         self.covariance_type = covariance_type
+        self.n_init = max(1, int(n_init))
+        self.tol = float(tol)
+        self.strict_convergence = bool(strict_convergence)
         self._model = None
         self._scaler = None  # sklearn StandardScaler, fit on training features
         self.state_returns_: np.ndarray = np.zeros(n_states)
@@ -64,7 +70,7 @@ class HiddenMarkovModel:
         observations: pd.DataFrame,
         feature_cols: list[str] | None = None,
         return_col: str = "return_1d",
-    ) -> "HiddenMarkovModel":
+    ) -> HiddenMarkovModel:
         from hmmlearn.hmm import GaussianHMM
         from sklearn.preprocessing import StandardScaler
 
@@ -89,18 +95,46 @@ class HiddenMarkovModel:
         self._scaler = StandardScaler()
         X = self._scaler.fit_transform(X_raw)
 
-        self._model = GaussianHMM(
-            n_components=self.n_states,
-            covariance_type=self.covariance_type,
-            n_iter=self.n_iter,
-            random_state=self.random_state,
+        # Multi-start: fit n_init times with distinct seeds, keep the model
+        # with the highest log-likelihood. Single restart still costs the same
+        # as before (n_init=1 default), so existing callers are unaffected.
+        best_model = None
+        best_ll = -np.inf
+        for trial in range(self.n_init):
+            candidate = GaussianHMM(
+                n_components=self.n_states,
+                covariance_type=self.covariance_type,
+                n_iter=self.n_iter,
+                random_state=self.random_state + trial,
+                tol=self.tol,
+            )
+            try:
+                candidate.fit(X)
+                ll = float(candidate.score(X))
+            except Exception:
+                continue
+            if ll > best_ll:
+                best_ll = ll
+                best_model = candidate
+        if best_model is None:
+            raise RuntimeError(
+                f"HMM failed to fit on all {self.n_init} restart(s)"
+            )
+        self._model = best_model
+        # hmmlearn's monitor_.converged is True even when EM exhausted n_iter
+        # without LL convergence (it conflates "stopped" with "converged"). Do
+        # the real check: LL delta on the final step must be below tol.
+        history = list(self._model.monitor_.history)
+        ll_converged = (
+            len(history) >= 2 and (history[-1] - history[-2]) < self.tol
         )
-        self._model.fit(X)
-        self.converged_ = bool(self._model.monitor_.converged)
-        try:
-            self.log_likelihood_ = float(self._model.score(X))
-        except Exception:
-            self.log_likelihood_ = None
+        self.converged_ = ll_converged
+        self.log_likelihood_ = best_ll if best_ll > -np.inf else None
+        if self.strict_convergence and not self.converged_:
+            raise RuntimeError(
+                f"HMM did not converge after {self.n_iter} iter × {self.n_init} restart(s); "
+                f"increase n_iter, n_init, or relax tol"
+            )
 
         states = self._model.predict(X)
         self.state_returns_ = np.zeros(self.n_states)
@@ -194,6 +228,9 @@ class HiddenMarkovModel:
                     "n_iter": self.n_iter,
                     "random_state": self.random_state,
                     "covariance_type": self.covariance_type,
+                    "n_init": self.n_init,
+                    "tol": self.tol,
+                    "strict_convergence": self.strict_convergence,
                     "model": self._model,
                     "scaler": self._scaler,
                     "state_returns": self.state_returns_,
@@ -209,7 +246,7 @@ class HiddenMarkovModel:
             )
 
     @classmethod
-    def load(cls, path: Path | str) -> "HiddenMarkovModel":
+    def load(cls, path: Path | str) -> HiddenMarkovModel:
         with Path(path).open("rb") as fh:
             d = pickle.load(fh)
         obj = cls(
@@ -217,6 +254,9 @@ class HiddenMarkovModel:
             n_iter=d["n_iter"],
             random_state=d["random_state"],
             covariance_type=d["covariance_type"],
+            n_init=d.get("n_init", 1),
+            tol=d.get("tol", 1e-3),
+            strict_convergence=d.get("strict_convergence", False),
         )
         obj._model = d["model"]
         obj._scaler = d.get("scaler")

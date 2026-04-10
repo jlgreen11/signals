@@ -32,7 +32,7 @@ class StateEncoder(ABC):
     n_states: int
 
     @abstractmethod
-    def fit(self, df: pd.DataFrame) -> "StateEncoder": ...
+    def fit(self, df: pd.DataFrame) -> StateEncoder: ...
 
     @abstractmethod
     def transform(self, df: pd.DataFrame) -> pd.Series: ...
@@ -53,7 +53,7 @@ class QuantileStateEncoder(StateEncoder):
         self.feature = feature
         self.edges_: np.ndarray | None = None
 
-    def fit(self, df: pd.DataFrame) -> "QuantileStateEncoder":
+    def fit(self, df: pd.DataFrame) -> QuantileStateEncoder:
         values = df[self.feature].dropna().to_numpy()
         if len(values) < self.n_bins:
             raise ValueError(
@@ -110,7 +110,7 @@ class CompositeStateEncoder(StateEncoder):
         self.return_edges_: np.ndarray | None = None
         self.vol_edges_: np.ndarray | None = None
 
-    def fit(self, df: pd.DataFrame) -> "CompositeStateEncoder":
+    def fit(self, df: pd.DataFrame) -> CompositeStateEncoder:
         rets = df[self.return_feature].dropna().to_numpy()
         vols = df[self.volatility_feature].dropna().to_numpy()
         if len(rets) < self.return_bins or len(vols) < self.volatility_bins:

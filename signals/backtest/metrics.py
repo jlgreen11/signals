@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -43,11 +44,68 @@ def _annualization_factor(equity: pd.Series) -> float:
     return 252.0 * bars_per_day if bars_per_day < 24 else 365.0 * bars_per_day
 
 
-def sharpe_ratio(returns: pd.Series, periods_per_year: float) -> float:
+def sharpe_ratio(
+    returns: pd.Series,
+    periods_per_year: float,
+    risk_free_rate: float = 0.0,
+) -> float:
+    """Annualized Sharpe ratio.
+
+    `risk_free_rate` is the *annualized* risk-free rate (e.g. 0.02 for 2%);
+    it gets converted to a per-period rate via division by `periods_per_year`
+    before being subtracted from the return series.
+    """
     r = returns.dropna()
     if len(r) < 2 or r.std() == 0:
         return 0.0
-    return float(r.mean() / r.std() * np.sqrt(periods_per_year))
+    excess = r - (risk_free_rate / periods_per_year)
+    return float(excess.mean() / r.std() * np.sqrt(periods_per_year))
+
+
+def expected_max_sharpe(n_trials: int) -> float:
+    """Expected max of N IID standard-normal Sharpe estimates under H0 (true SR=0).
+
+    Used as the baseline for the Deflated Sharpe Ratio. Bailey & López de Prado
+    (2014), eq. 8. Assumes the variance of the Sharpe estimates across trials
+    is 1 — a conservative default that makes the deflation easier to interpret.
+    """
+    if n_trials <= 1:
+        return 0.0
+    from scipy.stats import norm
+
+    emc = 0.5772156649015329  # Euler-Mascheroni
+    return float(
+        (1 - emc) * norm.ppf(1 - 1.0 / n_trials)
+        + emc * norm.ppf(1 - 1.0 / (n_trials * math.e))
+    )
+
+
+def deflated_sharpe_ratio(
+    sharpe: float,
+    n_trials: int,
+    n_observations: int,
+    skew: float = 0.0,
+    kurt: float = 3.0,
+) -> float:
+    """Deflated Sharpe Ratio: Pr(true SR > 0 | observed SR, N trials).
+
+    Bailey & López de Prado (2014). Corrects an observed Sharpe for selection
+    bias when the strategy was picked from N trials, and for non-normality of
+    returns (skew and excess kurtosis).
+
+    Returns a probability in [0, 1]. A DSR < 0.95 means the observed Sharpe
+    is consistent with chance under N trials and should not be celebrated.
+    """
+    if n_observations < 2 or n_trials < 1:
+        return 0.0
+    from scipy.stats import norm
+
+    e_max = expected_max_sharpe(n_trials)
+    var_term = 1.0 - skew * sharpe + ((kurt - 1.0) / 4.0) * sharpe * sharpe
+    if var_term <= 0:
+        return 0.0
+    z = (sharpe - e_max) * math.sqrt(max(1, n_observations - 1)) / math.sqrt(var_term)
+    return float(norm.cdf(z))
 
 
 def max_drawdown(equity: pd.Series) -> float:
@@ -68,13 +126,17 @@ def cagr(equity: pd.Series) -> float:
     return float((equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1)
 
 
-def compute_metrics(equity: pd.Series, trades: list) -> Metrics:
+def compute_metrics(
+    equity: pd.Series,
+    trades: list,
+    risk_free_rate: float = 0.0,
+) -> Metrics:
     if equity.empty:
         return Metrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
 
     returns = equity.pct_change().dropna()
     periods = _annualization_factor(equity)
-    sr = sharpe_ratio(returns, periods)
+    sr = sharpe_ratio(returns, periods, risk_free_rate=risk_free_rate)
     mdd = max_drawdown(equity)
     cg = cagr(equity)
 

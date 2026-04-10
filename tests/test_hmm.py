@@ -72,3 +72,35 @@ def test_hmm_n_step_distribution(synthetic_prices):
     )
     p3 = hmm.n_step(0, n=3)
     assert p3.sum() == pytest.approx(1.0, abs=1e-6)
+
+
+def test_hmm_n_init_keeps_best_ll(synthetic_prices):
+    """Multi-start HMM should never produce a worse LL than single-start
+    on the same seed range."""
+    feats = _features(synthetic_prices)
+    single = HiddenMarkovModel(n_states=3, n_iter=50, n_init=1).fit(
+        feats, feature_cols=["return_1d", "volatility_20d"]
+    )
+    multi = HiddenMarkovModel(n_states=3, n_iter=50, n_init=4).fit(
+        feats, feature_cols=["return_1d", "volatility_20d"]
+    )
+    # Multi-start covers the single-start seed and at least 3 others, so its
+    # best LL must be >= the single-start LL.
+    assert multi.log_likelihood_ is not None
+    assert single.log_likelihood_ is not None
+    assert multi.log_likelihood_ >= single.log_likelihood_ - 1e-9
+
+
+def test_hmm_strict_convergence_raises_when_too_few_iters(synthetic_prices):
+    """If strict_convergence is on and EM bails out before converging,
+    fit() should raise rather than silently return a half-fit model."""
+    feats = _features(synthetic_prices)
+    # Force non-convergence: tight tolerance + only 2 EM iterations.
+    hmm = HiddenMarkovModel(
+        n_states=4,
+        n_iter=2,
+        tol=1e-15,
+        strict_convergence=True,
+    )
+    with pytest.raises(RuntimeError, match="did not converge"):
+        hmm.fit(feats, feature_cols=["return_1d", "volatility_20d"])

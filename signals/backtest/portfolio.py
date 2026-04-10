@@ -255,5 +255,5 @@ class Portfolio:
     def equity_series(self) -> pd.Series:
         if not self.equity_curve:
             return pd.Series(dtype=float)
-        ts, eq = zip(*self.equity_curve)
+        ts, eq = zip(*self.equity_curve, strict=True)
         return pd.Series(eq, index=pd.DatetimeIndex(ts), name="equity")
