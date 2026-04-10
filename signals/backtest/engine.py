@@ -29,6 +29,7 @@ from signals.features.volatility import rolling_volatility
 from signals.model.composite import CompositeMarkovChain
 from signals.model.hmm import HiddenMarkovModel
 from signals.model.homc import HigherOrderMarkovChain
+from signals.model.hybrid import DEFAULT_ROUTING, HybridRegimeModel
 from signals.model.signals import SignalGenerator
 from signals.utils.logging import get_logger
 
@@ -37,7 +38,7 @@ log = get_logger(__name__)
 
 @dataclass
 class BacktestConfig:
-    model_type: str = "composite"     # "composite" | "hmm" | "homc"
+    model_type: str = "composite"     # "composite" | "hmm" | "homc" | "hybrid"
     train_window: int = 252
     retrain_freq: int = 21
     n_states: int = 9                 # composite: ignored (uses return_bins×vol_bins); homc/hmm: used
@@ -51,6 +52,17 @@ class BacktestConfig:
     strict_convergence: bool = False  # hmm only — raise if not converged
     random_state: int = 42
     laplace_alpha: float = 0.01       # tightened: low smoothing for composite (1.0 for hmm/homc)
+    # Hybrid-specific: lets a CLI caller override the default routing
+    # without knowing the internals of HybridRegimeModel.
+    # Default is "vol" because the 16-window random eval showed HMM-based
+    # routing whipsaws on ambiguous regimes (median Sharpe 0.37, far below
+    # both composite and HOMC), while vol-based routing produces the best
+    # median Sharpe of any model tested (1.92, +5% over HOMC, +33% over
+    # composite). See scripts/HOMC_TIER0C_HYBRID_RESULTS.md for the
+    # comparison.
+    hybrid_routing: dict[str, str] | None = None
+    hybrid_routing_strategy: str = "vol"   # "hmm" or "vol"
+    hybrid_vol_quantile: float = 0.75      # vol-routing threshold quantile
     initial_cash: float = 10_000.0
     commission_bps: float = 5.0
     slippage_bps: float = 5.0
@@ -120,6 +132,21 @@ class BacktestEngine:
                 order=cfg.order,
                 alpha=cfg.laplace_alpha,
             )
+        if cfg.model_type == "hybrid":
+            return HybridRegimeModel(
+                regime_n_states=3,
+                regime_n_iter=cfg.n_iter,
+                regime_random_state=cfg.random_state,
+                composite_return_bins=cfg.return_bins,
+                composite_volatility_bins=cfg.volatility_bins,
+                composite_alpha=cfg.laplace_alpha,
+                homc_n_states=cfg.n_states if cfg.n_states >= 2 else 5,
+                homc_order=cfg.order,
+                homc_alpha=max(cfg.laplace_alpha, 1.0),  # HOMC prefers alpha>=1
+                routing=cfg.hybrid_routing or dict(DEFAULT_ROUTING),
+                routing_strategy=cfg.hybrid_routing_strategy,
+                vol_quantile_threshold=cfg.hybrid_vol_quantile,
+            )
         raise ValueError(f"unknown model_type: {cfg.model_type!r}")
 
     def _fit_kwargs(self) -> dict:
@@ -134,6 +161,11 @@ class BacktestEngine:
                 "volatility_feature": "volatility_20d",
                 "return_col": "return_1d",
             }
+        if self.config.model_type == "hybrid":
+            # HybridRegimeModel.fit accepts any kwargs and handles component
+            # dispatch internally. Pass a neutral default that matches its
+            # signature; unused kwargs are ignored by the hybrid.
+            return {"feature_col": "return_1d", "return_col": "return_1d"}
         return {"feature_col": "return_1d", "return_col": "return_1d"}
 
     # ----- Run -----

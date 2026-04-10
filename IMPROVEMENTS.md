@@ -1,10 +1,13 @@
 # Signals — Roadmap of methodology improvements
 
-**Status as of 2026-04-10**: 59 tests passing, CI green on Python 3.11/3.12,
-walk-forward engine verified lookahead-clean, holdout flag + deflated Sharpe
-shipped. Composite-3×3 (1.29 Sharpe / -21% MDD across 16 random 6-month BTC
-windows) is the production default. The strategy is a defensive overlay
-capturing roughly 16% of the Sharpe of a perfect-direction oracle.
+**Status as of 2026-04-10 (late)**: 71 tests passing, CI green on Python
+3.11/3.12, walk-forward engine verified lookahead-clean, holdout flag +
+deflated Sharpe shipped. **New production default: H-Vol (vol-routed
+hybrid)**, replacing composite-3×3. Median Sharpe 1.92 across 16 random
+6-month BTC windows (vs composite's 1.44 and HOMC's 1.83). Holdout Sharpe
+2.21 on BTC bull holdout, 0.99 on BTC bear-stress, 2.11 on SOL. Exception:
+composite remains the default for ETH where all models degrade. See
+`scripts/HOMC_TIER0C_HYBRID_RESULTS.md` for the full comparison.
 
 This document is the **forward-looking improvement plan**. It is divided into
 three tiers by effort. Each item explains what to build, why it matters, and
@@ -133,7 +136,56 @@ bear defense is the critical safety feature.
   bull-biased single-model use, and we've found the real order-vs-
   robustness tradeoff surface.
 
-### 0c. (Next) 30% holdout for lower-order HOMC
+### 0d. Tier-3 #13 Hybrid model — **[x] DONE 2026-04-10 — NEW DEFAULT**
+
+Implemented `signals/model/hybrid.py` `HybridRegimeModel` — regime router
+with two strategies (HMM-based and vol-based). Vol-based is the new default.
+
+**Validation results** (full writeup: `scripts/HOMC_TIER0C_HYBRID_RESULTS.md`):
+
+| Test | Composite | HOMC | H-HMM | **H-Vol** |
+|---|---:|---:|---:|---:|
+| Random 16-window (median Sharpe) | 1.44 | 1.83 | 0.37 | **1.92** |
+| BTC 20% holdout | 0.63 | 1.76 | 1.18 | **2.21** |
+| BTC 30% holdout (bear stress) | — | 0.48 | 0.40 | **0.99** |
+| SOL 20% holdout | 1.11 | 1.45 | 1.43 | **2.11** |
+| ETH 20% holdout | **0.39** | 0.18 | 0.26 | **-0.40** ❌ |
+
+H-Vol wins 4 out of 5 tests by a meaningful margin. The ETH failure is
+real and unresolved — for ETH specifically, composite remains the default.
+H-Vol is promoted to default for BTC, SOL, and likely all other trending
+crypto assets.
+
+**Key insight**: HMM latent-state routing whipsaws on ambiguous regimes
+(median Sharpe 0.37, worse than any single model). Vol-based routing is
+stable because vol is a deterministic function of recent price action.
+This is the first experiment where DSR was outperformed by a different
+validation methodology.
+
+**Implementation changes**:
+- `BacktestConfig.hybrid_routing_strategy` default is now `"vol"`
+- `BacktestConfig.hybrid_vol_quantile` default `0.75` — untuned
+- `HybridRegimeModel.composite_train_window=252` by default — composite
+  gets its tuned window regardless of the hybrid's wider training slice
+- 12 new tests in `tests/test_hybrid.py` including lookahead regression
+  on both routing strategies
+
+**What this does NOT resolve**:
+1. **ETH is still broken.** No model beats buy & hold reliably on ETH.
+2. **Vol quantile threshold is unvalidated.** Default 0.75 is ad hoc.
+3. **Mean CAGR is lower than HOMC** (peak-return tradeoff for consistency).
+
+---
+
+### 0c. (Never run — obsoleted by 0d) 30% holdout for lower-order HOMC
+
+Was going to be a follow-up to the Tier-0b monotonic-order-vs-bull finding.
+Superseded by the hybrid result: the hybrid now handles bear regimes
+better than any lower-order HOMC could, so the order-vs-bear-robustness
+frontier is less interesting as a standalone question. Left in the doc as
+a historical pointer.
+
+
 
 ```bash
 # Order 3
@@ -422,26 +474,24 @@ LTC=9 finding directly.
 `expected_next_return`, `n_step`, and `steady_state` to operate on sparse
 intermediate forms.
 
-### 13. Hybrid model
+### 13. Hybrid model — **[x] SHIPPED 2026-04-10**
 
-**What**: A meta-model that delegates to one of {composite, HMM, HOMC,
-rule-based} per bar based on which model is most confident. Specifically: HMM
-detects the regime; within the regime, the composite picks the per-bar
-signal; HOMC kicks in only when its current k-tuple matches a high-frequency
-rule with strong directional consensus.
+Implemented and promoted to production default. See
+`signals/model/hybrid.py` and `scripts/HOMC_TIER0C_HYBRID_RESULTS.md`.
+The winning design was not HMM-routed (my initial guess) but **vol-routed**:
+when 20-day realized vol is above the training-distribution 75th quantile,
+route to composite (bear-defense); otherwise route to HOMC (bull
+participation).
 
-**Why it matters**: Each model captures structure the others can't. The
-composite is fast and dense but per-bar; the HMM is regime-aware but slow;
-HOMC is rule-aware but sparse. A meta-model that picks per-bar lets each
-contribute when it's most informative.
+Median Sharpe across 16 random 6-month BTC windows: **1.92** (vs HOMC's
+1.83, composite's 1.44). Wins 4 of 5 validation tests. Exception: ETH,
+where the hybrid catastrophically underperforms composite (-0.40 Sharpe
+holdout) — for ETH specifically, composite stays the default.
 
-**How to validate**: Compare the hybrid against each individual model on the
-16-window random eval. Expected outcome: hybrid Sharpe ≥ max(composite, HMM,
-HOMC) and ≤ a pure oracle. If hybrid beats the best individual model by
-≥0.1 Sharpe, ship it.
-
-**Where**: New `signals/model/hybrid.py`. Conforms to the same interface as
-the others so the engine doesn't need changes.
+Three follow-up items opened as replacements (see Tier 2/3 below):
+- **Tune vol quantile threshold** (Tier 2 #11 replacement)
+- **Fix ETH regime** (new investigation)
+- **Continuous blending** between composite and HOMC (Tier 3 replacement)
 
 ### 14. Bayesian model averaging
 
@@ -482,6 +532,78 @@ it's worse than -50%, the backtest is hiding execution costs.
 
 **Where**: `signals/broker/` — new files for each broker, plus a scheduler
 script in `scripts/`.
+
+---
+
+## Post-hybrid new items (2026-04-10)
+
+### 16. Tune the vol quantile threshold
+
+**What**: Sweep `--hybrid-vol-quantile` over {0.50, 0.60, 0.70, 0.75, 0.80,
+0.85} on the random-window eval. The current default 0.75 is ad hoc —
+"put the top 25% of vol days in composite's lane" — and a better value
+probably exists.
+
+**Why**: A lower threshold (say 0.60) routes MORE days to composite,
+protecting against bears at the cost of bull participation. A higher
+threshold (say 0.85) does the opposite. The ideal is the one that
+maximizes random-window median Sharpe subject to a max DD constraint.
+
+**How to validate**: Re-run `scripts/random_window_eval.py` with each
+candidate threshold. Pick the one with the highest median Sharpe and a
+max DD not more than 20% worse than the current 0.75.
+
+**Cost**: 5 min per sweep × 6 candidates = ~30 min. Cheapest remaining
+improvement on the list.
+
+### 17. Fix ETH regime — the elephant
+
+**What**: Investigate why every model in the project underperforms buy
+and hold on ETH-USD 2018-2024. Neither composite (Sharpe 0.39 holdout),
+HOMC (0.18), nor H-Vol (-0.40) produces a positive edge over ETH B&H.
+
+**Why**: The signals project is a BTC/SOL strategy in practice right now
+because of this gap. Fixing ETH unlocks a second (third, fourth) major
+asset.
+
+**Candidate hypotheses to test**:
+1. **Post-Merge regime break (2022-09)**. ETH's transaction-level dynamics
+   changed at the Merge. Models trained on pre-Merge data have stale
+   assumptions about volume, liquidity, and return distribution. Fix:
+   retrain only on post-2022-09 data and see if that helps.
+2. **Correlation to BTC masks ETH's own signal**. ETH is highly correlated
+   with BTC, so a BTC-tuned strategy's signal dominates whatever ETH-
+   specific structure exists. Fix: add a BTC return feature into the ETH
+   encoder and re-fit.
+3. **The composite encoder's return × vol grid is BTC-shaped.** BTC's
+   vol distribution is different from ETH's; composite's 3×3 quantile
+   grid may partition ETH observations pathologically. Fix: per-asset
+   vol binning.
+
+**How to validate**: Each hypothesis needs its own experiment. Start with
+#1 (cheapest, one sweep) and only move on if it fails.
+
+### 18. Continuous blending hybrid
+
+**What**: Instead of binary routing (composite OR HOMC per bar), blend
+their target positions: `target = w(vol) × composite_target + (1 - w(vol))
+× homc_target` where `w(vol)` ramps smoothly from 0 to 1 as vol crosses
+the quantile boundary. Reduces whipsaw and may preserve more peak return.
+
+**Why**: The current router switches hard at the 75th percentile. If
+vol is just above threshold, the router throws out HOMC entirely even
+though HOMC still has ~80% of the underlying signal. A smooth blend
+keeps partial exposure.
+
+**How to validate**: Run against the random-window eval. If median
+Sharpe ≥ H-Vol's 1.92 AND mean CAGR is closer to HOMC's +417%, ship it
+as a new routing strategy option.
+
+**Where**: `signals/model/hybrid.py` — add `routing_strategy="blend"`
+that returns a weighted average of the two components' expected-return
+and confidence vectors. This requires the SignalGenerator to accept a
+pre-computed expected/confidence rather than computing from
+`predict_next` and `state_returns_` directly. Small refactor.
 
 ---
 

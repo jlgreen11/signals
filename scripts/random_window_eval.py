@@ -1,10 +1,10 @@
-"""Evaluate the composite and HOMC strategies on 16 random 6-month BTC windows
-against buy & hold and a perfect-foresight oracle.
+"""Evaluate composite, HOMC, and hybrid strategies on 16 random 6-month BTC
+windows against buy & hold and a perfect-foresight oracle.
 
 The oracle is the theoretical ceiling on what any daily-rebalanced strategy
 could achieve given the same execution model (next-open fills, 5 bps slippage,
 5 bps commission). It uses ground-truth knowledge of next bar's open→close
-direction to choose its position. Two variants:
+direction to choose its position:
 
   oracle (long/flat) — long when next bar will close higher than its open
   oracle (long/short) — same, but goes short when next bar will close lower
@@ -12,9 +12,11 @@ direction to choose its position. Two variants:
 The "capture ratio" is what fraction of the oracle's CAGR the strategy picks
 up. 100% would mean perfect direction prediction; 0% means no edge over flat.
 
-Two strategies are evaluated on the SAME random windows for direct comparison:
-  composite-3×3 with train_window=252 (production default)
-  HOMC@order=5 with train_window=1000 (the surprise Tier-0a candidate)
+Three strategies are evaluated on the SAME random windows for direct comparison:
+
+  composite-3×3 with train_window=252         — production default
+  HOMC@order=5 with train_window=1000         — Tier-0a candidate (bull specialist)
+  hybrid (HMM regime → composite|HOMC)        — Tier-3 #13 (regime-routed ensemble)
 """
 
 from __future__ import annotations
@@ -144,6 +146,33 @@ def main() -> None:
         laplace_alpha=1.0,
     )
 
+    hybrid_hmm_cfg = BacktestConfig(
+        model_type="hybrid",
+        train_window=homc_train_window,  # HOMC binds
+        retrain_freq=21,
+        n_states=5,
+        order=5,
+        return_bins=3,
+        volatility_bins=3,
+        vol_window=vol_window,
+        laplace_alpha=0.01,
+        hybrid_routing_strategy="hmm",
+    )
+
+    hybrid_vol_cfg = BacktestConfig(
+        model_type="hybrid",
+        train_window=homc_train_window,
+        retrain_freq=21,
+        n_states=5,
+        order=5,
+        return_bins=3,
+        volatility_bins=3,
+        vol_window=vol_window,
+        laplace_alpha=0.01,
+        hybrid_routing_strategy="vol",
+        hybrid_vol_quantile=0.75,
+    )
+
     rows: list[dict] = []
     for i, start_i in enumerate(starts, start=1):
         end_i = start_i + six_months
@@ -156,6 +185,12 @@ def main() -> None:
         )
         m_homc = _run_strategy_on_window(
             homc_cfg, prices, start_i, end_i, "BTC-USD"
+        )
+        m_hybrid_hmm = _run_strategy_on_window(
+            hybrid_hmm_cfg, prices, start_i, end_i, "BTC-USD"
+        )
+        m_hybrid_vol = _run_strategy_on_window(
+            hybrid_vol_cfg, prices, start_i, end_i, "BTC-USD"
         )
 
         # Perfect oracle long/flat on the same eval window
@@ -172,14 +207,20 @@ def main() -> None:
             "bh_cagr": m_bh.cagr,
             "comp_cagr": m_composite.cagr,
             "homc_cagr": m_homc.cagr,
+            "hhmm_cagr": m_hybrid_hmm.cagr,
+            "hvol_cagr": m_hybrid_vol.cagr,
             "oracle_cagr": m_oracle.cagr,
             "bh_sharpe": m_bh.sharpe,
             "comp_sharpe": m_composite.sharpe,
             "homc_sharpe": m_homc.sharpe,
+            "hhmm_sharpe": m_hybrid_hmm.sharpe,
+            "hvol_sharpe": m_hybrid_vol.sharpe,
             "oracle_sharpe": m_oracle.sharpe,
             "bh_mdd": m_bh.max_drawdown,
             "comp_mdd": m_composite.max_drawdown,
             "homc_mdd": m_homc.max_drawdown,
+            "hhmm_mdd": m_hybrid_hmm.max_drawdown,
+            "hvol_mdd": m_hybrid_vol.max_drawdown,
         })
 
     df = pd.DataFrame(rows)
@@ -191,29 +232,36 @@ def main() -> None:
         return f"{x:5.2f}"
 
     print()
-    print("=" * 120)
+    print("=" * 150)
     print("Per-window results: BTC-USD, 16 random 6-month windows, seed 42")
-    print("=" * 120)
-    print(
-        f"{'window':<26} {'B&H':>12} {'Comp':>12} {'HOMC':>12} {'Oracle L/F':>14}   "
-        f"{'B&H Sh':>7} {'Comp Sh':>8} {'HOMC Sh':>8}"
+    print("=" * 150)
+    header = (
+        f"{'window':<26} "
+        f"{'B&H':>9} {'Comp':>9} {'HOMC':>9} {'H-HMM':>9} {'H-Vol':>9} "
+        f"{'Oracle':>11}   "
+        f"{'B&H':>5} {'Comp':>5} {'HOMC':>5} {'HMM':>5} {'Vol':>5}"
     )
+    print(header)
     for r in df.to_dict("records"):
         win = f"{r['start']} → {r['end']}"
         print(
-            f"{win:<26} {pct(r['bh_cagr']):>12} {pct(r['comp_cagr']):>12} "
-            f"{pct(r['homc_cagr']):>12} {pct(r['oracle_cagr']):>14}   "
-            f"{s(r['bh_sharpe']):>7} {s(r['comp_sharpe']):>8} {s(r['homc_sharpe']):>8}"
+            f"{win:<26} "
+            f"{pct(r['bh_cagr']):>9} {pct(r['comp_cagr']):>9} "
+            f"{pct(r['homc_cagr']):>9} {pct(r['hhmm_cagr']):>9} "
+            f"{pct(r['hvol_cagr']):>9} {pct(r['oracle_cagr']):>11}   "
+            f"{s(r['bh_sharpe']):>5} {s(r['comp_sharpe']):>5} "
+            f"{s(r['homc_sharpe']):>5} {s(r['hhmm_sharpe']):>5} "
+            f"{s(r['hvol_sharpe']):>5}"
         )
 
     print()
-    print("=" * 120)
+    print("=" * 150)
     print("Aggregate (across the 16 random 6-month windows)")
-    print("=" * 120)
+    print("=" * 150)
 
     def agg(name: str, series: pd.Series, formatter=pct) -> None:
         print(
-            f"{name:<28} mean={formatter(series.mean()):>10}  "
+            f"{name:<32} mean={formatter(series.mean()):>10}  "
             f"median={formatter(series.median()):>10}  "
             f"min={formatter(series.min()):>10}  max={formatter(series.max()):>10}"
         )
@@ -221,50 +269,72 @@ def main() -> None:
     agg("Buy & hold CAGR", df["bh_cagr"])
     agg("Composite CAGR", df["comp_cagr"])
     agg("HOMC@order=5 CAGR", df["homc_cagr"])
+    agg("Hybrid (HMM-routed) CAGR", df["hhmm_cagr"])
+    agg("Hybrid (Vol-routed) CAGR", df["hvol_cagr"])
     agg("Oracle (long/flat) CAGR", df["oracle_cagr"])
     print()
     agg("Buy & hold Sharpe", df["bh_sharpe"], formatter=s)
     agg("Composite Sharpe", df["comp_sharpe"], formatter=s)
     agg("HOMC@order=5 Sharpe", df["homc_sharpe"], formatter=s)
+    agg("Hybrid (HMM) Sharpe", df["hhmm_sharpe"], formatter=s)
+    agg("Hybrid (Vol) Sharpe", df["hvol_sharpe"], formatter=s)
     agg("Oracle Sharpe", df["oracle_sharpe"], formatter=s)
     print()
     agg("Buy & hold Max DD", df["bh_mdd"])
     agg("Composite Max DD", df["comp_mdd"])
     agg("HOMC@order=5 Max DD", df["homc_mdd"])
+    agg("Hybrid (HMM) Max DD", df["hhmm_mdd"])
+    agg("Hybrid (Vol) Max DD", df["hvol_mdd"])
 
     # Capture ratios
     print()
-    print("=" * 120)
+    print("=" * 150)
     print("Sharpe capture vs perfect long/flat oracle")
-    print("=" * 120)
+    print("=" * 150)
     comp_capture = df["comp_sharpe"] / df["oracle_sharpe"].replace(0, np.nan)
     homc_capture = df["homc_sharpe"] / df["oracle_sharpe"].replace(0, np.nan)
+    hhmm_capture = df["hhmm_sharpe"] / df["oracle_sharpe"].replace(0, np.nan)
+    hvol_capture = df["hvol_sharpe"] / df["oracle_sharpe"].replace(0, np.nan)
     print(
-        f"Composite : mean={comp_capture.mean() * 100:+6.1f}%  "
+        f"Composite     : mean={comp_capture.mean() * 100:+6.1f}%  "
         f"median={comp_capture.median() * 100:+6.1f}%"
     )
     print(
-        f"HOMC@5    : mean={homc_capture.mean() * 100:+6.1f}%  "
+        f"HOMC@5        : mean={homc_capture.mean() * 100:+6.1f}%  "
         f"median={homc_capture.median() * 100:+6.1f}%"
+    )
+    print(
+        f"Hybrid (HMM)  : mean={hhmm_capture.mean() * 100:+6.1f}%  "
+        f"median={hhmm_capture.median() * 100:+6.1f}%"
+    )
+    print(
+        f"Hybrid (Vol)  : mean={hvol_capture.mean() * 100:+6.1f}%  "
+        f"median={hvol_capture.median() * 100:+6.1f}%"
     )
 
     # Head-to-head
     print()
-    print("=" * 120)
-    print("HOMC vs Composite head-to-head")
-    print("=" * 120)
-    homc_beats_comp_cagr = (df["homc_cagr"] > df["comp_cagr"]).sum()
-    homc_beats_comp_sharpe = (df["homc_sharpe"] > df["comp_sharpe"]).sum()
-    homc_beats_bh = (df["homc_cagr"] > df["bh_cagr"]).sum()
-    comp_beats_bh = (df["comp_cagr"] > df["bh_cagr"]).sum()
-    homc_pos = (df["homc_cagr"] > 0).sum()
-    comp_pos = (df["comp_cagr"] > 0).sum()
-    print(f"HOMC beats Composite on CAGR   : {homc_beats_comp_cagr}/16 windows")
-    print(f"HOMC beats Composite on Sharpe : {homc_beats_comp_sharpe}/16 windows")
-    print(f"HOMC beats Buy & Hold on CAGR  : {homc_beats_bh}/16 windows")
-    print(f"Composite beats Buy & Hold     : {comp_beats_bh}/16 windows")
-    print(f"HOMC positive CAGR             : {homc_pos}/16 windows")
-    print(f"Composite positive CAGR        : {comp_pos}/16 windows")
+    print("=" * 150)
+    print("Head-to-head on Sharpe")
+    print("=" * 150)
+    def h2h(a: str, b: str) -> int:
+        return int((df[f"{a}_sharpe"] > df[f"{b}_sharpe"]).sum())
+
+    print(f"H-HMM beats Composite : {h2h('hhmm','comp')}/16 windows")
+    print(f"H-HMM beats HOMC      : {h2h('hhmm','homc')}/16 windows")
+    print(f"H-HMM beats Buy & Hold: {h2h('hhmm','bh')}/16 windows")
+    print(f"H-Vol beats Composite : {h2h('hvol','comp')}/16 windows")
+    print(f"H-Vol beats HOMC      : {h2h('hvol','homc')}/16 windows")
+    print(f"H-Vol beats Buy & Hold: {h2h('hvol','bh')}/16 windows")
+    print(f"H-Vol beats H-HMM     : {h2h('hvol','hhmm')}/16 windows")
+    print(f"HOMC beats Composite  : {h2h('homc','comp')}/16 windows")
+    print(f"HOMC beats Buy & Hold : {h2h('homc','bh')}/16 windows")
+    print(f"Composite beats B&H   : {h2h('comp','bh')}/16 windows")
+    print()
+    print(f"H-HMM positive CAGR   : {(df['hhmm_cagr'] > 0).sum()}/16")
+    print(f"H-Vol positive CAGR   : {(df['hvol_cagr'] > 0).sum()}/16")
+    print(f"HOMC positive CAGR    : {(df['homc_cagr'] > 0).sum()}/16")
+    print(f"Composite positive CAGR: {(df['comp_cagr'] > 0).sum()}/16")
 
 
 if __name__ == "__main__":
