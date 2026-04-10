@@ -29,15 +29,20 @@ data_app = typer.Typer(no_args_is_help=True, help="Data ingestion commands")
 model_app = typer.Typer(no_args_is_help=True, help="Markov model commands")
 signal_app = typer.Typer(no_args_is_help=True, help="Signal generation commands")
 backtest_app = typer.Typer(no_args_is_help=True, help="Backtesting commands")
+paper_app = typer.Typer(
+    no_args_is_help=True,
+    help="Paper-trade signal logging and reconciliation",
+)
 
 app.add_typer(data_app, name="data")
 app.add_typer(model_app, name="model")
 app.add_typer(signal_app, name="signal")
 app.add_typer(backtest_app, name="backtest")
+app.add_typer(paper_app, name="paper-trade")
 
 console = Console()
 
-VALID_MODELS = {"composite", "hmm", "homc", "hybrid", "trend", "golden_cross"}
+VALID_MODELS = {"composite", "hmm", "homc", "hybrid", "trend", "golden_cross", "boost", "ensemble"}
 
 
 def _store() -> DataStore:
@@ -1167,6 +1172,244 @@ def backtest_show(run_id: int) -> None:
     for col in df.columns:
         table.add_row(col, str(row[col]))
     console.print(table)
+
+
+# ============================================================
+# paper-trade
+# ============================================================
+
+
+@paper_app.command("record")
+def paper_trade_record(
+    symbol: str,
+    model: str = typer.Option("hybrid", "--model"),
+    interval: str = typer.Option("1d", "--interval"),
+    train_window: int = typer.Option(1000, "--train-window"),
+    vol_quantile: float = typer.Option(0.70, "--vol-quantile"),
+) -> None:
+    """Generate today's signal and append it to the paper-trade log.
+
+    Run this BEFORE market open each day. It refreshes the latest bars,
+    runs the production signal generator, and writes the target position
+    + expected fill price to `paper_trade/SYMBOL.json`.
+
+    Reconcile after market close via `signals paper-trade reconcile`.
+    """
+    from signals.broker.paper_trade_log import PaperTradeEntry, PaperTradeLog
+
+    _validate_model(model)
+
+    # Refresh data
+    try:
+        _pipeline().refresh(symbol, interval=interval)
+    except Exception as e:
+        console.print(f"[yellow]refresh failed:[/yellow] {e} (using stored)")
+
+    feats = _features_for(symbol, interval, vol_window=10)
+    if len(feats) < train_window:
+        raise typer.BadParameter(
+            f"Need >= {train_window} bars; got {len(feats)}"
+        )
+
+    # For paper-trading, we use the same model that backtest would.
+    # Simplest path: directly fit and generate, matching backtest defaults.
+    train_slice = feats.iloc[-train_window:]
+    if model == "hybrid":
+        cfg = BacktestConfig(
+            model_type="hybrid",
+            train_window=train_window,
+            n_states=5,
+            order=5,
+            return_bins=3,
+            volatility_bins=3,
+            vol_window=10,
+            laplace_alpha=0.01,
+            hybrid_routing_strategy="vol",
+            hybrid_vol_quantile=vol_quantile,
+        )
+        engine = BacktestEngine(cfg)
+        m = engine._make_model()
+        m.fit(train_slice, feature_col="return_1d", return_col="return_1d")
+        current_state = m.predict_state(train_slice)
+        gen = SignalGenerator(
+            model=m,
+            buy_threshold_bps=cfg.buy_threshold_bps,
+            sell_threshold_bps=cfg.sell_threshold_bps,
+            target_scale_bps=cfg.target_scale_bps,
+            allow_short=cfg.allow_short,
+            max_long=cfg.max_long,
+        )
+        decision = gen.generate(current_state)
+        params = {
+            "model_type": "hybrid",
+            "vol_quantile": vol_quantile,
+            "train_window": train_window,
+            "max_long": cfg.max_long,
+        }
+    else:
+        # Simpler models — use the existing _load_model path if they were
+        # pre-trained, or fit fresh.
+        fresh = _build_model(model, n_states=9, order=3, n_iter=200, alpha=1.0)
+        _fit_model(fresh, train_slice)
+        current_state = fresh.predict_state(train_slice)
+        gen = SignalGenerator(
+            model=fresh,
+            buy_threshold_bps=25.0,
+            sell_threshold_bps=-35.0,
+            target_scale_bps=20.0,
+        )
+        decision = gen.generate(current_state)
+        params = {"model_type": model}
+
+    last_ts = feats.index[-1]
+    last_close = float(feats["close"].iloc[-1])
+    today = last_ts.date().isoformat()
+
+    log = PaperTradeLog.load(symbol=symbol)
+    # Don't duplicate if already recorded today
+    if any(e.date == today for e in log.entries):
+        console.print(f"[yellow]Already recorded for {today} — skipping[/yellow]")
+        return
+    log.append(
+        PaperTradeEntry(
+            date=today,
+            signal=decision.signal.value,
+            target_position=decision.target_position,
+            expected_fill_price=last_close,
+            signal_model=model,
+            signal_params=params,
+        )
+    )
+    path = log.save()
+
+    color = {"BUY": "green", "SELL": "red", "HOLD": "yellow"}[decision.signal.value]
+    console.print(
+        f"[{color}]{decision.signal.value}[/{color}] {symbol} @ {last_ts} "
+        f"target={decision.target_position:+.2f} "
+        f"expected_fill=${last_close:,.2f}"
+    )
+    console.print(f"[dim]logged to {path}[/dim]")
+    console.print(
+        "[dim]Reconcile after tomorrow's close with: "
+        f"signals paper-trade reconcile {symbol}[/dim]"
+    )
+
+
+@paper_app.command("reconcile")
+def paper_trade_reconcile(symbol: str, interval: str = typer.Option("1d", "--interval")) -> None:
+    """Reconcile unreconciled paper-trade entries against actual fills.
+
+    Reads the log, finds entries whose next bar's actual open and close
+    are now available in the data store, and computes realized returns
+    with modeled slippage/commission. Compares against the backtest's
+    expected return for each entry.
+    """
+    from signals.broker.paper_trade_log import PaperTradeLog
+
+    try:
+        _pipeline().refresh(symbol, interval=interval)
+    except Exception as e:
+        console.print(f"[yellow]refresh failed:[/yellow] {e}")
+
+    prices = _store().load(symbol, interval)
+    if prices.empty:
+        raise typer.BadParameter(f"No data for {symbol}")
+
+    log = PaperTradeLog.load(symbol=symbol)
+    unreconciled = log.unreconciled_entries()
+    if not unreconciled:
+        console.print("[yellow]No unreconciled entries[/yellow]")
+        return
+
+    reconciled_count = 0
+    for entry in unreconciled:
+        entry_date = pd.Timestamp(entry.date, tz=prices.index.tz or "UTC")
+        # Find the bar AFTER entry_date (that's when the fill happens)
+        later_bars = prices[prices.index > entry_date]
+        if len(later_bars) < 1:
+            continue
+        fill_bar = later_bars.iloc[0]
+        log.reconcile(
+            date=entry.date,
+            actual_open=float(fill_bar["open"]),
+            actual_close=float(fill_bar["close"]),
+        )
+        reconciled_count += 1
+
+    log.save()
+
+    table = Table(title=f"Paper-trade reconcile — {symbol}")
+    table.add_column("Date")
+    table.add_column("Signal")
+    table.add_column("Target")
+    table.add_column("Expected")
+    table.add_column("Actual open")
+    table.add_column("Actual close")
+    table.add_column("Realized %")
+    table.add_column("Backtest %")
+    table.add_column("Δ pp")
+    for entry in log.reconciled_entries()[-20:]:  # last 20
+        realized_pct = (entry.realized_return or 0.0) * 100
+        backtest_pct = (entry.backtest_return or 0.0) * 100
+        delta_pp = realized_pct - backtest_pct
+        table.add_row(
+            entry.date,
+            entry.signal,
+            f"{entry.target_position:+.2f}",
+            f"${entry.expected_fill_price:,.2f}",
+            f"${entry.actual_open or 0:,.2f}",
+            f"${entry.actual_close or 0:,.2f}",
+            f"{realized_pct:+6.3f}%",
+            f"{backtest_pct:+6.3f}%",
+            f"{delta_pp:+6.3f}pp",
+        )
+    console.print(table)
+    console.print(f"[green]Reconciled {reconciled_count} new entries[/green]")
+
+
+@paper_app.command("report")
+def paper_trade_report(symbol: str) -> None:
+    """Print a summary of the paper-trade log for `symbol`.
+
+    Compares cumulative realized return to cumulative backtest return.
+    If delta is within ±20%, the execution model is trustworthy. If
+    realized is much worse than backtest, the backtest is hiding costs.
+    """
+    from signals.broker.paper_trade_log import PaperTradeLog
+
+    log = PaperTradeLog.load(symbol=symbol)
+    summary = log.summary()
+
+    table = Table(title=f"Paper-trade report — {symbol}")
+    table.add_column("Metric")
+    table.add_column("Value")
+    table.add_row("Symbol", summary["symbol"])
+    table.add_row("Total entries", str(summary["total_entries"]))
+    table.add_row("Reconciled", str(summary["reconciled"]))
+    table.add_row("Unreconciled", str(summary["unreconciled"]))
+    if summary["reconciled"] > 0:
+        realized = summary["cumulative_realized_return"] * 100
+        backtest = summary["cumulative_backtest_return"] * 100
+        delta = summary["delta_realized_minus_backtest"] * 100
+        delta_pct = summary["delta_pct"]
+        table.add_row("Cumulative realized", f"{realized:+.2f}%")
+        table.add_row("Cumulative backtest", f"{backtest:+.2f}%")
+        table.add_row("Delta (realized - backtest)", f"{delta:+.2f}pp")
+        table.add_row("Delta %", f"{delta_pct:+.1f}%")
+        verdict = (
+            "[green]Backtest trustworthy[/green]"
+            if abs(delta_pct) <= 20
+            else "[yellow]Execution model may be off[/yellow]"
+            if delta_pct > -50
+            else "[red]Backtest hiding significant costs[/red]"
+        )
+        table.add_row("Verdict", verdict)
+    console.print(table)
+
+
+# ============================================================
+# main
+# ============================================================
 
 
 def main() -> None:

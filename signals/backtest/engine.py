@@ -26,7 +26,9 @@ from signals.backtest.metrics import Metrics, compute_metrics
 from signals.backtest.portfolio import Portfolio
 from signals.features.returns import log_returns
 from signals.features.volatility import rolling_volatility
+from signals.model.boost import GradientBoostingModel
 from signals.model.composite import CompositeMarkovChain
+from signals.model.ensemble import EnsembleModel
 from signals.model.hmm import HiddenMarkovModel
 from signals.model.homc import HigherOrderMarkovChain
 from signals.model.hybrid import DEFAULT_ROUTING, HybridRegimeModel
@@ -39,7 +41,7 @@ log = get_logger(__name__)
 
 @dataclass
 class BacktestConfig:
-    model_type: str = "composite"     # "composite" | "hmm" | "homc" | "hybrid" | "trend" | "golden_cross"
+    model_type: str = "composite"     # "composite" | "hmm" | "homc" | "hybrid" | "trend" | "golden_cross" | "boost"
     train_window: int = 252
     retrain_freq: int = 21
     n_states: int = 9                 # composite: ignored (uses return_bins×vol_bins); homc/hmm: used
@@ -79,6 +81,10 @@ class BacktestConfig:
     trend_window: int = 200                # single-MA trend filter window
     trend_fast_window: int = 50            # dual-MA fast window
     trend_slow_window: int = 200           # dual-MA slow window
+    # Gradient boosting model (Tier-3 Phase E — signals/model/boost.py):
+    boost_n_estimators: int = 100
+    boost_max_depth: int = 3
+    boost_learning_rate: float = 0.1
     initial_cash: float = 10_000.0
     commission_bps: float = 5.0
     slippage_bps: float = 5.0
@@ -161,6 +167,16 @@ class BacktestEngine:
                 order=cfg.order,
                 alpha=cfg.laplace_alpha,
             )
+        if cfg.model_type == "boost":
+            return GradientBoostingModel(
+                n_estimators=cfg.boost_n_estimators,
+                max_depth=cfg.boost_max_depth,
+                learning_rate=cfg.boost_learning_rate,
+                random_state=cfg.random_state,
+            )
+        if cfg.model_type == "ensemble":
+            # Default ensemble: composite-3×3 + HOMC@5 + boost@100
+            return EnsembleModel()
         if cfg.model_type == "trend":
             return TrendFilter(window=cfg.trend_window)
         if cfg.model_type == "golden_cross":
@@ -211,6 +227,10 @@ class BacktestEngine:
             # Trend models fit() is a no-op that only reads the "close"
             # column. They accept and ignore any additional kwargs.
             return {}
+        if self.config.model_type == "boost":
+            return {"feature_col": "return_1d", "return_col": "return_1d"}
+        if self.config.model_type == "ensemble":
+            return {"feature_col": "return_1d", "return_col": "return_1d"}
         return {"feature_col": "return_1d", "return_col": "return_1d"}
 
     # ----- Run -----
