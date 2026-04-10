@@ -90,10 +90,17 @@ class SignalGenerator:
             mask = self.model.state_returns_ < 0
         confidence = float(probs[mask].sum())
 
-        # Sized target. Magnitude is purely a function of |expected| / scale,
-        # capped at 1.0. Confidence acts as a *gate*, not a multiplier — a
-        # confident signal goes fully to target; a low-confidence signal goes flat.
-        magnitude = min(1.0, abs(expected) / self.target_scale)
+        # Sized target. Magnitude is |expected| / scale — can exceed 1.0 for
+        # strong signals, which is clipped later by max_long / max_short.
+        # Confidence acts as a *gate*, not a multiplier — a confident signal
+        # goes fully to target; a low-confidence signal goes flat.
+        #
+        # Design note: the old formula capped magnitude at 1.0 unconditionally,
+        # which meant raising max_long above 1.0 had no effect at all. The new
+        # formula lets max_long be the actual leverage ceiling. Backward
+        # compatibility: with max_long=1.0 (the previous default), behavior is
+        # identical — a magnitude of e.g. 1.5 clips to 1.0 at the target stage.
+        magnitude = abs(expected) / self.target_scale
         if confidence < self.min_confidence:
             magnitude = 0.0
         raw_target = np.sign(expected) * magnitude

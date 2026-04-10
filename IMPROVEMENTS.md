@@ -316,27 +316,43 @@ holds, integrate as an optional `--rule-based` flag on `signal next` and
 `signals.py`. Implements the same `SignalGenerator` interface so the engine
 can swap.
 
-### 5. Asymmetric / aggressive position sizing
+### 5. Asymmetric / aggressive position sizing — **[x] DONE 2026-04-11 — SHARPE PLATEAU**
 
-**What**: Two new flags on the existing strategy: `--target-scale-bps 10`
-(half the current default) lets the same expected-return signal map to a
-larger fraction; `--max-long 1.5` lets the strongest signals lever up beyond
-100%. Plus an experimental `--confidence-power 2.0` that squares the
-confidence factor so high-conviction trades dominate low-conviction ones.
+Swept (target_scale_bps, max_long) over 16 combinations on BTC
+(4 scales × 4 max_long values). Full writeup
+`scripts/HOMC_TIER0F_SIZING_BLEND.md`.
 
-**Why it matters**: The 16-window random eval showed the strategy gets the
-*direction* right but takes too small a position in winning windows
-(2019-01-11 → 2019-05-16: same direction as B&H, half the size). The
-defensive thresholds are working; the sizing is leaving alpha on the table.
+**Two findings**:
 
-**How to validate**: Re-run the 16-window evaluation with the more aggressive
-sizing. Expected outcome: higher mean CAGR, similar drawdown profile, Sharpe
-roughly preserved. If max DD blows past -30%, the sizing is too aggressive
-and needs to be backed off.
+1. **`target_scale_bps` is effectively inert** in this regime. HOMC's
+   expected-return magnitudes are large enough that
+   `|expected|/scale >> max_long` for every tested scale, so the
+   magnitude saturates at the `max_long` clip and the scale denominator
+   drops out of the result. Scales 5, 10, 15, 20 all produce identical
+   median Sharpe at each `max_long` level.
 
-**Where**: `signals/model/signals.py` — already accepts `target_scale_bps`
-and `max_long`; just need the new defaults wired through CLI flags and a CLI
-default change.
+2. **`max_long` is a clean risk/return dial** with basically flat
+   Sharpe:
+
+   | max_long | Median Sharpe | Median CAGR | Mean MDD |
+   |---:|---:|---:|---:|
+   | 1.00 (default) | 2.15 | +156% | -21% |
+   | 1.25 | 2.15 | +216% | -26% |
+   | 1.50 | 2.16 | +288% | -30% |
+   | 2.00 | 2.13 | +480% | -38% |
+
+**Prerequisite code fix shipped**: removed the hardcoded 1.0 cap in
+`SignalGenerator.generate()`. Before the fix, `max_long > 1.0` had no
+effect because magnitude was already capped at 1.0 before the max_long
+clip. Now magnitude is `|expected|/scale` uncapped, with `max_long` as
+the real leverage ceiling. Backward compatible (`max_long=1.0` gives
+identical behavior).
+
+**Verdict**: No default change. The baseline (`scale=20, max_long=1.0`)
+is at the Sharpe plateau with the most conservative drawdown profile.
+If you're willing to take -30% drawdowns for ~1.85× the return,
+`max_long=1.5` is the clear pick. This is a user risk-tolerance
+decision, not a methodology decision.
 
 ### 6. Confidence-weighted targets without the unit cap
 
@@ -562,22 +578,22 @@ than run a hybrid strategy.
 See `scripts/HOMC_TIER0E_BTC_SP500.md` for the full per-quantile
 breakdown and `scripts/vol_quantile_sweep.py` for the runner.
 
-### 16a. (New) Tune the H-Blend ramp parameters
+### 16a. Tune the H-Blend ramp parameters — **[x] DONE 2026-04-11 — BLEND LOSES**
 
-**What**: Sweep the (blend_low, blend_high) pair for H-Blend on BTC. The
-current default is (0.50, 0.85) — a median ramp that was a guess, not
-measured. A 2D sweep over {low in {0.30, 0.40, 0.50}} × {high in {0.70,
-0.80, 0.85, 0.90}} = 12 configs should reveal whether the blend can beat
-the retuned H-Vol @ q=0.70 baseline of 2.15 median Sharpe.
+Swept (blend_low, blend_high) over 16 pairs on BTC. Best pair
+(low=0.40, high=0.90) scored median Sharpe **2.07**, which is 0.08
+below H-Vol @ q=0.70's **2.15**. Every blend pair in the grid was
+worse than the hard switch. **H-Vol @ q=0.70 stays the default;
+H-Blend is a research option only.**
 
-**Why**: H-Blend at default (0.50, 0.85) scored 2.06 on BTC — close to
-H-Vol q=0.75 (1.92) and just below H-Vol q=0.70 (2.15). If the right
-(low, high) pair beats 2.15, blend becomes the new default.
+Interpretation: the underlying BTC regimes are clean enough that
+decisive regime switching beats soft averaging. Blending gives you
+50% exposure to the wrong model in the bar before the regime flips,
+which is a real cost. Hard switching picks the right model at the
+right time.
 
-**Cost**: ~6 minutes (12 × 30 sec per random-window eval iteration).
-
-**How to validate**: Same methodology as #16 — 16 random windows, median
-Sharpe as the optimization target.
+Full writeup in `scripts/HOMC_TIER0F_SIZING_BLEND.md`. Sweep is
+reproducible via `python scripts/blend_ramp_sweep.py`.
 
 ### 17. Fix ETH regime — **[deleted 2026-04-11 — out of scope]**
 
