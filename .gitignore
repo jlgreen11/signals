@@ -20,8 +20,8 @@ coverage.xml
 venv/
 env/
 
-# Data (gitignored)
-data/
+# Data files — only the top-level data/ store, NOT signals/data/ source code
+/data/
 *.parquet
 *.db
 
