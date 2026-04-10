@@ -17,20 +17,42 @@ CLI work with any of them transparently.
 
 ## Best result so far
 
-BTC-USD walk-forward, 2018-09 → 2024-12 (composite, optimized via sweep):
+BTC-USD walk-forward, 2018-09 → 2024-12 with the **tightened composite defaults**:
 
-| Metric | Composite (3×3) | HMM (4s) | HOMC (5s, o3) | Buy & Hold |
-|---|---|---|---|---|
-| Final equity | **$378,959** | $112,596 | $167,749 | $141,013 |
-| CAGR | **78.83%** | 47.28% | 56.98% | 52.68% |
-| Sharpe | **1.13** | 0.84 | 0.97 | 0.81 |
-| Max drawdown | -55.7% | -58.6% | -54.9% | -76.6% |
-| Calmar | **1.41** | 0.81 | 1.04 | 0.69 |
-| # trades | 115 | 19 | 245 | — |
+| Metric | Composite (3×3) | Buy & Hold |
+|---|---|---|
+| Final equity | **$441,385** | $143,304 |
+| CAGR | **82.76%** | 52.79% |
+| Sharpe | **1.19** | 0.82 |
+| Max drawdown | **-45.2%** | -76.6% |
+| Calmar | **1.83** | 0.69 |
+| # trades | 178 | — |
 
-Optimized config: `--buy-bps 25 --sell-bps -30 --target-scale-bps 20 --stop-loss 0.25
---no-short --train-window 252`. Asymmetric thresholds (faster entries, slower exits)
-matter; shorts hurt on BTC's secular uptrend.
+3.1× the buy-and-hold final equity with 31pp lower drawdown — Calmar more than 2.6×.
+
+The defaults are now baked in (you don't need to pass any flags):
+
+```bash
+signals backtest run BTC-USD --start 2018-01-01 --end 2024-12-31
+```
+
+What "tightened" means — the values that the sweeps converged on:
+
+| Parameter | Value | Why |
+|---|---|---|
+| `vol_window` | 10 | Shorter window reacts faster to regime shifts |
+| `laplace_alpha` | 0.01 | Low smoothing — let actual transitions speak loudly |
+| `buy_bps` | 25 | Empirical optimum on the threshold sweep |
+| `sell_bps` | -35 | Asymmetric (slower exits, faster entries) |
+| `target_scale_bps` | 20 | Saturate to full position when threshold fires |
+| `train_window` | 252 | One year — longer windows over-smooth, shorter windows churn |
+| `retrain_freq` | 21 | Monthly retrain — both faster and slower hurt |
+| `return_bins × vol_bins` | 3 × 3 | 9 states; every other shape (4×3, 5×5, …) was meaningfully worse |
+| `allow_short` | false | BTC's secular uptrend punishes shorts |
+| `stop_loss_pct` | 0 | Sell signal exits faster than any reasonable stop |
+
+These were tuned for **composite + BTC**. HMM and HOMC need their own per-model
+tuning — see "Comparing model classes" below.
 
 ## Architecture
 

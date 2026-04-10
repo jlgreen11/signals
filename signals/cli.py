@@ -105,18 +105,20 @@ def data_list() -> None:
 # ============================================================
 # features helper
 # ============================================================
-def _features_for(symbol: str, interval: str) -> pd.DataFrame:
+def _features_for(symbol: str, interval: str, vol_window: int = 10) -> pd.DataFrame:
     df = _store().load(symbol, interval)
     if df.empty:
         raise typer.BadParameter(f"No data for {symbol} {interval} — run `signals data fetch` first.")
     feats = pd.DataFrame(index=df.index)
     feats["close"] = df["close"]
     feats["return_1d"] = log_returns(df["close"])
-    feats["volatility_20d"] = rolling_volatility(feats["return_1d"], window=20)
+    # Column name kept as "volatility_20d" for backward compatibility with the
+    # encoder's default feature name; the *window* itself is configurable.
+    feats["volatility_20d"] = rolling_volatility(feats["return_1d"], window=vol_window)
     return feats.dropna()
 
 
-def _build_model(model_type: str, n_states: int, order: int, n_iter: int, alpha: float):
+def _build_model(model_type: str, n_states: int, order: int, n_iter: int, alpha: float = 0.01):
     if model_type == "hmm":
         return HiddenMarkovModel(n_states=n_states, n_iter=n_iter)
     if model_type == "composite":
@@ -322,7 +324,7 @@ def signal_now(
     model: str = typer.Option("composite", "--model"),
     interval: str = typer.Option("1d", "--interval"),
     buy_bps: float = typer.Option(25.0, "--buy-bps"),
-    sell_bps: float = typer.Option(-30.0, "--sell-bps"),
+    sell_bps: float = typer.Option(-35.0, "--sell-bps"),
     target_scale_bps: float = typer.Option(20.0, "--target-scale-bps"),
     allow_short: bool = typer.Option(False, "--short/--no-short"),
 ) -> None:
@@ -366,10 +368,11 @@ def signal_next(
     model: str = typer.Option("composite", "--model"),
     interval: str = typer.Option("1d", "--interval"),
     buy_bps: float = typer.Option(25.0, "--buy-bps"),
-    sell_bps: float = typer.Option(-30.0, "--sell-bps"),
+    sell_bps: float = typer.Option(-35.0, "--sell-bps"),
     target_scale_bps: float = typer.Option(20.0, "--target-scale-bps"),
     allow_short: bool = typer.Option(False, "--short/--no-short"),
     train_window: int = typer.Option(252, "--train-window"),
+    vol_window: int = typer.Option(10, "--vol-window"),
     refresh: bool = typer.Option(True, "--refresh/--no-refresh"),
 ) -> None:
     """One-shot 'what should I do tomorrow?' workflow.
@@ -388,7 +391,7 @@ def signal_next(
         except Exception as e:
             console.print(f"[yellow]refresh failed:[/yellow] {e} (using stored data)")
 
-    feats = _features_for(symbol, interval)
+    feats = _features_for(symbol, interval, vol_window=vol_window)
     if len(feats) < train_window:
         raise typer.BadParameter(
             f"Need >= {train_window} bars to train; got {len(feats)}. "
@@ -475,8 +478,8 @@ def _build_config(
     *,
     buy_bps: float | None = None,
     sell_bps: float | None = None,
-    target_scale_bps: float = 50.0,
-    allow_short: bool = True,
+    target_scale_bps: float = 20.0,
+    allow_short: bool = False,
     max_long: float = 1.0,
     max_short: float = 1.0,
     stop_loss_pct: float = 0.0,
@@ -485,6 +488,8 @@ def _build_config(
     hold_preserves_position: bool = True,
     return_bins: int = 3,
     volatility_bins: int = 3,
+    vol_window: int = 10,
+    laplace_alpha: float = 0.01,
 ) -> BacktestConfig:
     return BacktestConfig(
         model_type=model,
@@ -494,6 +499,8 @@ def _build_config(
         return_bins=return_bins,
         volatility_bins=volatility_bins,
         order=order,
+        vol_window=vol_window,
+        laplace_alpha=laplace_alpha,
         initial_cash=SETTINGS.backtest.initial_cash,
         commission_bps=SETTINGS.backtest.commission_bps,
         slippage_bps=SETTINGS.backtest.slippage_bps,
@@ -562,12 +569,14 @@ def backtest_run(
     interval: str = typer.Option("1d", "--interval"),
     states: int = typer.Option(9, "--states"),
     order: int = typer.Option(3, "--order"),
-    train_window: int = typer.Option(504, "--train-window"),
+    train_window: int = typer.Option(252, "--train-window"),
     retrain_freq: int = typer.Option(21, "--retrain-freq"),
-    buy_bps: float = typer.Option(20.0, "--buy-bps"),
-    sell_bps: float = typer.Option(-20.0, "--sell-bps"),
-    target_scale_bps: float = typer.Option(50.0, "--target-scale-bps"),
-    allow_short: bool = typer.Option(True, "--short/--no-short"),
+    vol_window: int = typer.Option(10, "--vol-window"),
+    laplace_alpha: float = typer.Option(0.01, "--alpha"),
+    buy_bps: float = typer.Option(25.0, "--buy-bps"),
+    sell_bps: float = typer.Option(-35.0, "--sell-bps"),
+    target_scale_bps: float = typer.Option(20.0, "--target-scale-bps"),
+    allow_short: bool = typer.Option(False, "--short/--no-short"),
     max_long: float = typer.Option(1.0, "--max-long"),
     max_short: float = typer.Option(1.0, "--max-short"),
     stop_loss_pct: float = typer.Option(0.0, "--stop-loss"),
@@ -587,6 +596,7 @@ def backtest_run(
         allow_short=allow_short, max_long=max_long, max_short=max_short,
         stop_loss_pct=stop_loss_pct, stop_cooldown_bars=stop_cooldown,
         min_trade_fraction=min_trade,
+        vol_window=vol_window, laplace_alpha=laplace_alpha,
     )
     engine = BacktestEngine(cfg)
     result = engine.run(prices, symbol=symbol, start=start, end=end)
@@ -619,12 +629,14 @@ def backtest_compare(
     hmm_states: int = typer.Option(4, "--hmm-states"),
     homc_states: int = typer.Option(5, "--homc-states"),
     homc_order: int = typer.Option(3, "--homc-order"),
-    train_window: int = typer.Option(504, "--train-window"),
+    train_window: int = typer.Option(252, "--train-window"),
     retrain_freq: int = typer.Option(21, "--retrain-freq"),
-    buy_bps: float = typer.Option(20.0, "--buy-bps"),
-    sell_bps: float = typer.Option(-20.0, "--sell-bps"),
-    target_scale_bps: float = typer.Option(50.0, "--target-scale-bps"),
-    allow_short: bool = typer.Option(True, "--short/--no-short"),
+    vol_window: int = typer.Option(10, "--vol-window"),
+    laplace_alpha: float = typer.Option(0.01, "--alpha"),
+    buy_bps: float = typer.Option(25.0, "--buy-bps"),
+    sell_bps: float = typer.Option(-35.0, "--sell-bps"),
+    target_scale_bps: float = typer.Option(20.0, "--target-scale-bps"),
+    allow_short: bool = typer.Option(False, "--short/--no-short"),
     max_long: float = typer.Option(1.0, "--max-long"),
     max_short: float = typer.Option(1.0, "--max-short"),
     stop_loss_pct: float = typer.Option(0.0, "--stop-loss"),
@@ -644,6 +656,7 @@ def backtest_compare(
         allow_short=allow_short, max_long=max_long, max_short=max_short,
         stop_loss_pct=stop_loss_pct, stop_cooldown_bars=stop_cooldown,
         min_trade_fraction=min_trade,
+        vol_window=vol_window, laplace_alpha=laplace_alpha,
     )
 
     console.print("[bold]Running Composite backtest[/bold] (3×3)...")

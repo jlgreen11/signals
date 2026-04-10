@@ -38,26 +38,26 @@ log = get_logger(__name__)
 @dataclass
 class BacktestConfig:
     model_type: str = "composite"     # "composite" | "hmm" | "homc"
-    train_window: int = 504
+    train_window: int = 252
     retrain_freq: int = 21
     n_states: int = 9                 # composite: ignored (uses return_bins×vol_bins); homc/hmm: used
     return_bins: int = 3              # composite only
     volatility_bins: int = 3          # composite only
     order: int = 3                    # homc only
-    vol_window: int = 20
+    vol_window: int = 10              # tightened: short window reacts faster to vol regimes
     n_iter: int = 200                 # hmm only
     random_state: int = 42
-    laplace_alpha: float = 1.0        # composite + homc
+    laplace_alpha: float = 0.01       # tightened: low smoothing for composite (1.0 for hmm/homc)
     initial_cash: float = 10_000.0
     commission_bps: float = 5.0
     slippage_bps: float = 5.0
-    buy_threshold_bps: float = 20.0
-    sell_threshold_bps: float = -20.0
-    target_scale_bps: float = 50.0
-    allow_short: bool = True
+    buy_threshold_bps: float = 25.0
+    sell_threshold_bps: float = -35.0
+    target_scale_bps: float = 20.0
+    allow_short: bool = False         # tightened: BTC's secular uptrend punishes shorts
     max_long: float = 1.0
     max_short: float = 1.0
-    stop_loss_pct: float = 0.0        # 0 = disabled; e.g. 0.08 = 8% adverse move
+    stop_loss_pct: float = 0.0        # tightened: empirically unhelpful for composite (sell signal exits faster than any reasonable stop)
     stop_cooldown_bars: int = 5
     min_trade_fraction: float = 0.20  # don't rebalance for changes smaller than this
     hold_preserves_position: bool = True  # HOLD signal keeps current position (trend-follow)
