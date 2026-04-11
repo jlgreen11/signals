@@ -1,6 +1,11 @@
 # Tier 0b — Comprehensive HOMC validation (4 experiments)
 
 **Run date**: 2026-04-10
+**Test parameters (historical)**:
+- Model: HOMC @ `order=5`, `train_window=1000` (on BTC); also tested on ETH and SOL
+- Hybrid: **not applicable** (pre-hybrid era)
+- Window sampler: overlapping (buggy) on the 16-window random eval
+
 **Purpose**: Resolve whether the surprising Tier-0a result (HOMC@order=5/window=1000
 showing 1.76 holdout Sharpe on BTC 2023-2024) reflects a real durable edge or
 is a period-specific artifact. Four independent experiments.

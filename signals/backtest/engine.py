@@ -66,13 +66,22 @@ class BacktestConfig:
     # comparison.
     hybrid_routing: dict[str, str] | None = None
     hybrid_routing_strategy: str = "vol"   # "hmm", "vol", "blend", or "adaptive_vol"
-    # Default 0.70 comes from the Tier-0e vol quantile sweep on BTC-USD:
-    # q=0.70 produced median Sharpe 2.15 across 16 random 6-month windows,
-    # vs 1.92 at the ad-hoc q=0.75 default. See scripts/HOMC_TIER0E_RESULTS.md.
-    # NOTE: This is a BTC-optimal value. For ^GSPC, no hybrid quantile beats
-    # buy & hold — recommendation is to NOT use a hybrid strategy on ^GSPC
-    # at all. Stick with B&H or pass a per-symbol override.
-    hybrid_vol_quantile: float = 0.70
+    # ------------------------------------------------------------------
+    # Historical q-value timeline (SKEPTIC_REVIEW.md / Tier A5)
+    # ------------------------------------------------------------------
+    # q=0.75 — original ad-hoc default (Tier 0c hybrid launch, 2026-04-10)
+    # q=0.70 — seed-42 sweep winner (Tier 0e, 2026-04-11)
+    # q=0.50 — MULTI-SEED winner at 10 seeds × 6 quantiles, avg median
+    #          Sharpe 0.88 ± 0.03 vs q=0.70's 0.78 ± 0.08. Set as the
+    #          new default 2026-04-11 late after scripts/multi_seed_eval.py
+    #          results landed. See scripts/data/multi_seed_eval.parquet
+    #          and IMPROVEMENTS_PROGRESS.md.
+    # ------------------------------------------------------------------
+    # Every historical result doc in scripts/*.md still reports numbers
+    # that were measured at the q-value prevailing *at the time of that
+    # doc's run*. To read those numbers correctly, check each doc's
+    # header for its explicit "Test q=" annotation.
+    hybrid_vol_quantile: float = 0.50
     hybrid_blend_low: float = 0.50         # blend ramp lower quantile
     hybrid_blend_high: float = 0.85        # blend ramp upper quantile
     hybrid_adaptive_low: float = 0.60      # adaptive-vol low-regime threshold quantile

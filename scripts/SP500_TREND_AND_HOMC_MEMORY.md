@@ -1,6 +1,14 @@
 # S&P 500 — Trend filters + HOMC memory depth sweep
 
 **Run date**: 2026-04-11
+**Test parameters (historical)**:
+- Strategies tested: `trend` (MA200), `golden_cross` (50/200), HOMC at
+  orders 1–9. `hybrid_vol_quantile` only applies to the hybrid control
+  which used **q=0.70** (the pre-Round-2 default).
+- Window sampler: overlapping (buggy). Multi-seed robustness WAS applied
+  at the last step (4 seeds) — this is the doc where multi-seed robustness
+  killed the HOMC@order=6 apparent winner.
+
 **Motivation**: The Tier 0e result (`scripts/HOMC_TIER0E_BTC_SP500.md`) showed
 that no Markov-chain model at `order=5` beats buy & hold on ^GSPC. The
 candidates for beating S&P 500 are (a) model classes designed for secular-

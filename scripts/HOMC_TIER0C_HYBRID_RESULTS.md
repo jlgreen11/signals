@@ -1,6 +1,16 @@
 # Tier 0c / Tier-3 #13 — Hybrid regime-routed model
 
 **Run date**: 2026-04-10
+**Test parameters (historical)**:
+- **This is the doc that introduced the hybrid model.**
+- `hybrid_vol_quantile`: **q=0.75** (ad-hoc initial choice, never sweep-tuned
+  in this doc — the sweep that produced q=0.70 came later in Tier 0e,
+  and the sweep that produced q=0.50 came in Round 2)
+- `routing_strategy`: "vol" was the winner; "hmm" was tested and lost
+- Window sampler: overlapping (buggy)
+- See `IMPROVEMENTS_PROGRESS.md` for the Round-2 correction that replaces
+  the 1.92 median Sharpe with 0.78 multi-seed.
+
 **Motivation**: Tier-0b (see `HOMC_TIER0B_COMPREHENSIVE.md`) established that
 HOMC@order=5/window=1000 is a bull-regime specialist and composite-3×3 is a
 bear-defensive model. The two are complementary, not ranked. The hypothesis

@@ -1,6 +1,14 @@
 # Tier 0e — BTC + S&P 500 scope, continuous blending, vol quantile tuning
 
 **Run date**: 2026-04-11
+**Test parameters (historical)**:
+- `hybrid_vol_quantile` swept across `{0.50, 0.55, 0.60, 0.65, 0.70, 0.75,
+  0.80, 0.85, 0.90}` — **this is the sweep that produced the q=0.70
+  recommendation** (subsequently superseded by the Round-2 multi-seed
+  sweep which found q=0.50 is the multi-seed winner)
+- Window sampler: overlapping (buggy). Seed 42 only
+- Numbers in this doc are NOT comparable to Round-2 results
+
 **Scope change**: jlg explicitly deprioritized ETH and SOL from future
 focus. Production scope is now **BTC-USD and ^GSPC only**.
 **Experiments**:

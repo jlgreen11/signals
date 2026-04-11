@@ -1,10 +1,28 @@
 # Random window evaluation — composite vs perfect oracle vs buy & hold
 
+> ⚠ **This doc's per-window numbers are obsolete.** The windows shown in
+> the table below were drawn with the pre-fix sampler that did NOT enforce
+> non-overlap. Several windows share 75-95% of their bars. The 16 "random"
+> windows are effectively ~6 distinct market episodes. Post-SKEPTIC_REVIEW
+> Round 2, the non-overlap sampler is the canonical one (see
+> `scripts/_window_sampler.py`) and the corrected results are in
+> `scripts/data/multi_seed_eval.parquet` and
+> `IMPROVEMENTS_PROGRESS.md`. This doc is kept as a historical record.
+
 **Run date**: 2026-04-10
+**Test parameters (historical)**:
+- Model: **composite-3×3** (no hybrid yet — this doc predates the hybrid
+  model by one day). `hybrid_vol_quantile` does not apply.
+- Script: `scripts/random_window_eval.py` (fixed in Round 1)
+- Seed: 42 only
+- **Window sampler: buggy (overlapping)** — this is where the SKEPTIC_REVIEW
+  § 2 "non-overlap fraud" observation originated.
+
 **Script**: `scripts/random_window_eval.py`
 **Seed**: `random.Random(42)` (deterministic)
 **Universe**: BTC-USD daily, 2018-01-01 → 2024-12-31 (2,557 bars)
-**Windows**: 16 random non-overlapping 6-month (126 trading-bar) windows
+**Windows**: 16 random 6-month (126 trading-bar) windows (**NOT non-overlapping
+in the original run — see warning above**)
 **Strategy**: composite-3×3 with the tightened defaults (`vol_window=10`, `alpha=0.01`, `train_window=252`, `retrain_freq=21`, `buy_bps=25`, `sell_bps=-35`, `target_scale_bps=20`, no shorts, no stop)
 **Oracle**: perfect knowledge of next bar's open→close direction, executes at next open with the same 5 bps slippage + 5 bps commission as the engine
 

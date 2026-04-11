@@ -1,6 +1,13 @@
 # BTC hybrid + S&P 500 buy & hold — multi-asset portfolio experiment
 
 **Run date**: 2026-04-11
+**Test parameters (historical)**:
+- `hybrid_vol_quantile` for BTC component: **q=0.70**
+- Window sampler: **buggy (overlapping)**. Post-Round-2 the non-overlap
+  sampler would reduce the reported BTC Sharpe from ~2.15 to ~0.78 avg.
+- SKEPTIC_REVIEW.md Round 2 has not yet re-run this portfolio experiment
+  on non-overlapping windows; treat the 1.16 average as seed-42.
+
 **Motivation**: The Tier-1S analysis established that no strategy in
 this project beats buy & hold on S&P 500 (see
 `SP500_TREND_AND_HOMC_MEMORY.md`). The Tier-0f analysis established

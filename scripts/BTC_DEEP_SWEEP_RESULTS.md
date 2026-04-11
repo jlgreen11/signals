@@ -1,6 +1,15 @@
 # BTC deep backtest sweep + robustness validation
 
 **Run date**: 2026-04-11
+**Test parameters (historical — see SKEPTIC_REVIEW.md)**:
+- `hybrid_vol_quantile` baseline: **q=0.70** (the default at the time of this run)
+- Window sampler: **buggy (overlapping)** — the 16 "random" windows at seed 42
+  shared 75–95% of their bars. Numbers in this doc are NOT comparable to
+  post-Round-2 results that use the non-overlap sampler.
+- Multi-seed robustness: **yes**, 4 seeds {42, 7, 100, 999} applied in Phase 3.
+- See `IMPROVEMENTS_PROGRESS.md` for the Round-2 corrections that supersede
+  this doc's numerical claims.
+
 **Scope**: BTC-USD only (S&P 500 was explored in Tier-1S; nothing worked).
 **Goal**: map the full hyperparameter surface for the BTC backtest and find
 out whether any parameter combination robustly improves on the H-Vol @

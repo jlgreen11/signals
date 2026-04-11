@@ -1,6 +1,11 @@
 # Tier 0 experiment — HOMC at order=7 on BTC
 
 **Run date**: 2026-04-10
+**Test parameters (historical)**:
+- Model: HOMC @ `order=7`, `n_states=5`, `train_window=252` (walk-forward)
+- Hybrid: **not applicable** (pre-hybrid era)
+- Sweep trial count: 25 configs (buy/sell threshold grid)
+
 **Source paper**: Nascimento et al., *Extracting Rules via Markov Chains for
 Cryptocurrencies Returns Forecasting*, Computational Economics (2022).
 **Paper's claim**: BTC, ETH, and XRP have **7 steps of memory** when prices

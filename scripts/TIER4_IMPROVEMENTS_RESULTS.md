@@ -1,6 +1,11 @@
 # Tier 4 — new improvements + detailed random-window backtest
 
 **Run date**: 2026-04-11
+**Test parameters (historical)**:
+- `hybrid_vol_quantile=0.70` baseline (pre-Round-2 default).
+- Window sampler: overlapping (buggy) for random-window sections; the
+  Excel detail section uses a single walk-forward pass.
+
 **Scope**: Ship a set of genuinely new improvements not in Tier 1/2/3,
 plus produce a very detailed single-window BTC backtest with an Excel
 workbook containing every day's activity.

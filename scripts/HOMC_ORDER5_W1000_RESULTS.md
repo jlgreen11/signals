@@ -1,6 +1,13 @@
 # Tier 0a experiment — HOMC at order=5 with 1000-bar window
 
 **Run date**: 2026-04-10
+**Test parameters (historical)**:
+- Model: HOMC @ `order=5`, `n_states=5`, `train_window=1000`
+- Hybrid: **not applicable** — this doc predates the hybrid model
+  (`hybrid_vol_quantile` did not exist yet).
+- Window sampler: overlapping (buggy); walk-forward single pass for
+  holdout evaluation.
+
 **Question**: After the order=7/window=252 setup failed catastrophically (see
 `HOMC_ORDER7_RESULTS.md`), is the HOMC backend salvageable with a wider
 training window and a lower order — i.e. is the failure structural, or just

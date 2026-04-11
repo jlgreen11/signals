@@ -1,6 +1,14 @@
 # Tier 0f — Sizing sweep and blend ramp sweep
 
 **Run date**: 2026-04-11
+**Test parameters (historical)**:
+- `hybrid_vol_quantile=0.70` (post-Tier-0e retune) held fixed throughout
+- Swept: `target_scale_bps`, `max_long`, `hybrid_blend_low`, `hybrid_blend_high`
+- Window sampler: overlapping (buggy). Seed 42 only
+- "Plateau at 2.15" finding is a seed-42 artifact of the buggy sampler —
+  post-Round-2 the plateau is at ~0.78 multi-seed average. See
+  `IMPROVEMENTS_PROGRESS.md`.
+
 **Scope**: BTC-USD only. S&P 500 was excluded because Tier 0e showed no
 strategy in the project beats buy & hold on S&P regardless of parameter
 tuning.

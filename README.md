@@ -445,9 +445,29 @@ Earlier foundational work:
 | `allow_short` | `False` | BTC's secular uptrend punishes shorts |
 | `stop_loss_pct` | `0.0` | Empirically unhelpful — sell signal exits faster |
 | `hybrid_routing_strategy` | `"vol"` | `"vol"` (default), `"hmm"`, or `"blend"` |
-| `hybrid_vol_quantile` | `0.70` | Tuned from seed-42 sweep (was 0.75). Not validated at multi-seed — see [`SKEPTIC_REVIEW.md`](./SKEPTIC_REVIEW.md) § 1 / § A5. |
+| `hybrid_vol_quantile` | **`0.50`** | **New default as of Round 2** — multi-seed sweep winner at avg Sharpe 0.88 ± 0.03 (10 seeds × 16 non-overlapping windows). Previous value `0.70` was a seed-42 artifact (avg Sharpe 0.78 ± 0.08). See "q-value history" table below. |
 | `hybrid_blend_low` | `0.50` | H-Blend ramp low |
 | `hybrid_blend_high` | `0.85` | H-Blend ramp high |
+
+### `hybrid_vol_quantile` history
+
+Every historical result doc in `scripts/*.md` reports numbers measured at
+the `hybrid_vol_quantile` value prevailing *at the time of that doc's
+run*. To read old numbers correctly, check the doc's "Test parameters
+(historical)" header — every result doc has one after the Round 2
+documentation pass.
+
+| Period | Value | Origin | Status |
+|---|---:|---|---|
+| 2026-04-10 (Tier 0c) | **0.75** | ad-hoc initial pick when the hybrid was first introduced | superseded |
+| 2026-04-11 (Tier 0e) | **0.70** | seed-42 sweep winner over `{0.50..0.90}` | superseded — was a single-seed artifact |
+| 2026-04-11 (Round 2 / A5) | **0.50** ✅ | **multi-seed** winner (10 seeds × 16 non-overlap windows) | **current default** |
+
+Docs that reference `q=0.75` predate Tier 0e. Docs that reference
+`q=0.70` predate the Round-2 multi-seed sweep. Docs that use `q=0.50`
+are the current post-Round-2 numbers (only `IMPROVEMENTS_PROGRESS.md`,
+`SKEPTIC_REVIEW.md`, and this README so far — the result docs in
+`scripts/*.md` are marked "historical" and have not been re-generated).
 
 ## Methodology caveats
 

@@ -1,6 +1,14 @@
 # Tier 3 — "Do all the improvements" comprehensive results
 
 **Run date**: 2026-04-11
+**Test parameters (historical)**:
+- `hybrid_vol_quantile=0.70` baseline throughout. Adaptive-vol variants
+  were tested and lost.
+- Window sampler: overlapping (buggy). Multi-seed robustness applied at
+  4 seeds.
+- "Baseline Sharpe 1.00" that appears in this doc refers to 4-seed average
+  (not the 2.15 seed-42 result, and not the 0.78 Round-2 10-seed result).
+
 **Scope**: Execute all 8 improvement items from the "where to go from
 here" synopsis, with the explicit carve-out that live broker execution
 (item 7b) was never run — SDK code was written but credentials and
