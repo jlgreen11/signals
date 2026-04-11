@@ -100,7 +100,7 @@ def test_composite_encoder_only_uses_train_window(synthetic_prices):
 
     feats = pd.DataFrame(index=synthetic_prices.index)
     feats["return_1d"] = log_returns(synthetic_prices["close"])
-    feats["volatility_20d"] = rolling_volatility(feats["return_1d"], window=10)
+    feats["volatility"] = rolling_volatility(feats["return_1d"], window=10)
     feats = feats.dropna()
 
     train_short = feats.iloc[:300]
@@ -110,14 +110,14 @@ def test_composite_encoder_only_uses_train_window(synthetic_prices):
     m_short.fit(
         train_short,
         return_feature="return_1d",
-        volatility_feature="volatility_20d",
+        volatility_feature="volatility",
         return_col="return_1d",
     )
     m_full = CompositeMarkovChain(return_bins=3, volatility_bins=3, alpha=0.5)
     m_full.fit(
         train_full,
         return_feature="return_1d",
-        volatility_feature="volatility_20d",
+        volatility_feature="volatility",
         return_col="return_1d",
     )
 

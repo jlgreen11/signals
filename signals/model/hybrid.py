@@ -223,7 +223,7 @@ class HybridRegimeModel:
             )
             self.regime_detector.fit(
                 observations,
-                feature_cols=["return_1d", "volatility_20d"],
+                feature_cols=["return_1d", "volatility"],
                 return_col="return_1d",
             )
         else:
@@ -233,7 +233,7 @@ class HybridRegimeModel:
             # defines a linear ramp; the "adaptive_vol" strategy uses a
             # low/high pair plus a recent-vol pivot that selects between
             # them based on the realized vol regime.
-            vols = observations["volatility_20d"].dropna()
+            vols = observations["volatility"].dropna()
             if len(vols) < 10:
                 raise ValueError("Not enough vol observations to set threshold")
             self._vol_threshold_value = float(
@@ -263,7 +263,7 @@ class HybridRegimeModel:
         self.composite.fit(
             composite_slice,
             return_feature="return_1d",
-            volatility_feature="volatility_20d",
+            volatility_feature="volatility",
             return_col="return_1d",
         )
 
@@ -300,7 +300,7 @@ class HybridRegimeModel:
             assert self._adaptive_low_value is not None
             assert self._adaptive_high_value is not None
             assert self._adaptive_median_vol is not None
-            vol_series = observations["volatility_20d"].dropna()
+            vol_series = observations["volatility"].dropna()
             if vol_series.empty:
                 return "neutral"
             current_vol = float(vol_series.iloc[-1])
@@ -316,7 +316,7 @@ class HybridRegimeModel:
         # "vol" or "blend": get the latest non-NaN 20d vol and compare
         # to threshold.
         assert self._vol_threshold_value is not None
-        vol_series = observations["volatility_20d"].dropna()
+        vol_series = observations["volatility"].dropna()
         if vol_series.empty:
             return "neutral"
         current_vol = float(vol_series.iloc[-1])
@@ -339,7 +339,7 @@ class HybridRegimeModel:
         """
         assert self._blend_low_value is not None
         assert self._blend_high_value is not None
-        vol_series = observations["volatility_20d"].dropna()
+        vol_series = observations["volatility"].dropna()
         if vol_series.empty:
             return 0.5
         current_vol = float(vol_series.iloc[-1])

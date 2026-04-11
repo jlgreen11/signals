@@ -101,7 +101,7 @@ class EnsembleModel:
                     model.fit(
                         observations,
                         return_feature="return_1d",
-                        volatility_feature="volatility_20d",
+                        volatility_feature="volatility",
                         return_col=return_col,
                     )
                 elif isinstance(model, HigherOrderMarkovChain | GradientBoostingModel):

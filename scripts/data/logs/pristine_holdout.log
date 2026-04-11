@@ -1,0 +1,45 @@
+BTC-USD: train=2922 bars (2015-01-01 → 2022-12-31); full=3653 bars
+
+Sweeping 13 configs on train slice only...
+  [1/13] q=0.6_sell=-25.0_mtf=0.1
+  [2/13] q=0.6_sell=-25.0_mtf=0.2
+  [3/13] q=0.6_sell=-35.0_mtf=0.1
+  [4/13] q=0.6_sell=-35.0_mtf=0.2
+  [5/13] q=0.7_sell=-25.0_mtf=0.1
+  [6/13] q=0.7_sell=-25.0_mtf=0.2
+  [7/13] q=0.7_sell=-35.0_mtf=0.1
+  [8/13] q=0.7_sell=-35.0_mtf=0.2
+  [9/13] q=0.8_sell=-25.0_mtf=0.1
+  [10/13] q=0.8_sell=-25.0_mtf=0.2
+  [11/13] q=0.8_sell=-35.0_mtf=0.1
+  [12/13] q=0.8_sell=-35.0_mtf=0.2
+  [13/13] production_hvol_default
+
+In-sample sweep (sorted by median Sharpe):
+                   label  hybrid_vol_quantile  buy_bps  sell_bps  min_trade_fraction  is_median_sharpe  is_mean_sharpe  is_median_cagr  is_mean_mdd
+q=0.6_sell=-25.0_mtf=0.1                  0.6     25.0     -25.0                 0.1          0.395922        0.589578        0.101098    -0.313304
+q=0.6_sell=-25.0_mtf=0.2                  0.6     25.0     -25.0                 0.2          0.395922        0.589578        0.101098    -0.313304
+q=0.6_sell=-35.0_mtf=0.1                  0.6     25.0     -35.0                 0.1          0.318738        0.595435        0.085195    -0.311517
+q=0.6_sell=-35.0_mtf=0.2                  0.6     25.0     -35.0                 0.2          0.318738        0.595435        0.085195    -0.311517
+q=0.7_sell=-35.0_mtf=0.1                  0.7     25.0     -35.0                 0.1          0.276734        0.622470        0.049688    -0.301699
+q=0.7_sell=-35.0_mtf=0.2                  0.7     25.0     -35.0                 0.2          0.276734        0.622470        0.049688    -0.301699
+ production_hvol_default                  0.7     25.0     -35.0                 0.2          0.276734        0.622470        0.049688    -0.301699
+q=0.7_sell=-25.0_mtf=0.1                  0.7     25.0     -25.0                 0.1          0.237815        0.585866        0.016708    -0.305805
+q=0.7_sell=-25.0_mtf=0.2                  0.7     25.0     -25.0                 0.2          0.237815        0.585866        0.016708    -0.305805
+q=0.8_sell=-25.0_mtf=0.1                  0.8     25.0     -25.0                 0.1          0.110560        0.526922       -0.072557    -0.316195
+q=0.8_sell=-25.0_mtf=0.2                  0.8     25.0     -25.0                 0.2          0.110560        0.526922       -0.072557    -0.316195
+q=0.8_sell=-35.0_mtf=0.1                  0.8     25.0     -35.0                 0.1          0.110560        0.550895       -0.072557    -0.312399
+q=0.8_sell=-35.0_mtf=0.2                  0.8     25.0     -35.0                 0.2          0.110560        0.550895       -0.072557    -0.312399
+
+Winner: q=0.6_sell=-25.0_mtf=0.1
+  in-sample median Sharpe: 0.396
+
+========================================================================
+Pristine holdout (2023-2024) — single-shot walk-forward
+========================================================================
+  Buy & hold holdout      : Sharpe=+1.906  CAGR=+137.2%  MDD=-26.2%
+  Sweep-winner holdout    : Sharpe=+2.453  CAGR=+158.0%  MDD=-19.2%
+  Production H-Vol holdout: Sharpe=+2.690  CAGR=+181.9%  MDD=-19.2%
+
+[wrote] /Users/jlg/claude/signals/scripts/data/pristine_holdout.parquet
+[wrote] /Users/jlg/claude/signals/scripts/data/pristine_holdout.md

@@ -33,7 +33,7 @@ class CompositeMarkovChain:
         self.alpha = float(alpha)
         self._encoder: CompositeStateEncoder | None = None
         self.return_feature_: str = "return_1d"
-        self.volatility_feature_: str = "volatility_20d"
+        self.volatility_feature_: str = "volatility"
         self.return_col_: str = "return_1d"
         self.transmat_: np.ndarray = np.zeros((self.n_states, self.n_states))
         self.state_returns_: np.ndarray = np.zeros(self.n_states)
@@ -45,7 +45,7 @@ class CompositeMarkovChain:
         self,
         observations: pd.DataFrame,
         return_feature: str = "return_1d",
-        volatility_feature: str = "volatility_20d",
+        volatility_feature: str = "volatility",
         return_col: str = "return_1d",
     ) -> CompositeMarkovChain:
         self.return_feature_ = return_feature

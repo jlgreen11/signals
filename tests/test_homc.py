@@ -14,7 +14,7 @@ from signals.model.homc import HigherOrderMarkovChain
 def _features(prices: pd.DataFrame) -> pd.DataFrame:
     f = pd.DataFrame(index=prices.index)
     f["return_1d"] = log_returns(prices["close"])
-    f["volatility_20d"] = rolling_volatility(f["return_1d"], window=20)
+    f["volatility"] = rolling_volatility(f["return_1d"], window=20)
     return f.dropna()
 
 

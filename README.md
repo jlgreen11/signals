@@ -25,15 +25,19 @@ kind, express or implied**. See [`LICENSE`](./LICENSE).
 
 **Production scope**: BTC-USD and ^GSPC (S&P 500).
 
-**TL;DR per asset**:
+**TL;DR per asset** *(numbers updated 2026-04-11 to reflect the Round-2
+SKEPTIC_REVIEW fixes — non-overlapping windows and multi-seed validation)*:
 
 - **BTC-USD** → use the `hybrid` model (`H-Vol` routing at `vol_quantile=0.70`).
-  Median Sharpe 2.15 **at seed=42** on random-window evaluation (4-seed
-  average ≈ **1.00**, seed 7 = **−0.27**). Treat as an in-sample measurement
-  until multi-seed validation completes. Holdout Sharpe 2.21 on 2023-2024 BTC
-  bull, 0.99 on BTC bear-stress — but note the tuning process had visibility
-  into the same 2023-2024 period, so this is not a pristine out-of-sample
-  test.
+  Multi-seed median Sharpe **0.78 ± 0.08** across 10 seeds on 16 genuinely
+  non-overlapping 6-month random windows (was 2.15 at seed 42 only, on the
+  buggy overlapping-window sampler). Multi-seed best quantile is q=0.50
+  (avg Sharpe 0.88), not q=0.70 — see `scripts/multi_seed_eval.py` output.
+  Pristine holdout (parameters chosen with zero visibility of 2023-2024):
+  sweep winner holdout Sharpe **+2.45**, production default holdout Sharpe
+  **+2.69**, buy & hold **+1.91** — so the 2023-2024 period is friendly to
+  any trend/vol strategy, and the production default survives a clean OOS
+  pass even though the multi-seed average is modest.
 - **^GSPC (S&P 500)** → **use buy & hold.** No strategy in this project beats
   B&H on S&P. The Markov-chain backbone is the wrong tool for a secular-
   uptrend equity index. See `scripts/HOMC_TIER0E_BTC_SP500.md` for the full
@@ -56,36 +60,138 @@ All eight implement a common interface (`fit`, `predict_state`, `predict_next`,
 `state_returns_`, `label`, `save`/`load`) so the engine, signal generator,
 and CLI work with any of them transparently.
 
-## Headline result — BTC-USD, 16 random 6-month windows, seed 42
+## Headline result — BTC-USD (post-SKEPTIC_REVIEW fixes)
 
-> **⚠ Seed variance warning**: The median Sharpe numbers below are measured at
-> `random.Random(seed=42)` only. Across 4 alternative seeds {7, 42, 100, 999}
-> the same H-Vol @ q=0.70 baseline averages a median Sharpe of **~1.00** with
-> a spread from **−0.27 (seed 7) to 2.15 (seed 42)**. The seed-42 result is at
-> the high end of this distribution. A full 10+ seed multi-seed re-validation
-> is pending; see [`SKEPTIC_REVIEW.md`](./SKEPTIC_REVIEW.md) § 1 for detail.
-> Until that completes, treat 2.15 as the best of a small sample, not a robust
-> point estimate.
+> **⚠ The numbers in this section were corrected in Round 2.** The original
+> "Sharpe 2.15" headline was a seed-42 result on a sampler that did not
+> enforce non-overlap between windows. After fixing both — 10 seeds +
+> slot-based non-overlapping sampler — the honest number is much smaller.
+> See [`SKEPTIC_REVIEW.md`](./SKEPTIC_REVIEW.md) § 1/§ 2 and
+> [`IMPROVEMENTS_PROGRESS.md`](./IMPROVEMENTS_PROGRESS.md) for the paper
+> trail.
 
-The random-window evaluation is the most robust validation methodology in the
-project: it samples windows across bull, bear, and chop regimes and reports
-per-window performance + head-to-head counts.
+### Multi-seed random-window evaluation (A1/A5 fix)
 
-| Metric | B&H | Composite | HOMC | H-Vol @ 0.70 | H-Blend |
-|---|---:|---:|---:|---:|---:|
-| **Median Sharpe** | 1.18 | 1.44† | 1.83† | **2.15**† 🏆 | 2.06† |
-| Mean Sharpe | 1.03 | 1.10 | 1.39 | 1.59 | 1.48 |
-| Median CAGR | +101% | +44% | +118% | **+156%** | +141% |
-| Mean Max DD | -28% | -21% | -23% | -21% | -22% |
-| Sharpe capture vs oracle | — | 16% | 22% | **23%** | 21% |
-| Positive CAGR windows | 9/16 | 11/16 | 10/16 | **12/16** | 13/16 |
+`scripts/multi_seed_eval.py` at 10 seeds × 6 vol-quantiles = 960 H-Vol
+backtests, all on non-overlapping 6-month BTC windows:
 
-† seed=42. Multi-seed average Sharpe ≈ 1.00 ± 0.6 for H-Vol @ q=0.70. See
-[`SKEPTIC_REVIEW.md`](./SKEPTIC_REVIEW.md) § 1.
+| Metric | B&H (10 seeds) | H-Vol @ q=0.70 (10 seeds) | H-Vol @ q=0.50 (best) |
+|---|---:|---:|---:|
+| **Multi-seed avg median Sharpe** | **0.37 ± 0.21** | **0.78 ± 0.08** | **0.88 ± 0.03** |
+| min seed Sharpe | — | 0.34 | 0.76 |
+| max seed Sharpe | — | 1.19 | 1.11 |
 
-**H-Vol @ q=0.70 is the BTC production default.** H-Blend is a close second on
-the median but ~0.08 Sharpe behind on the best-case pair. See
-`scripts/HOMC_TIER0F_SIZING_BLEND.md` for the full blend sweep.
+**Interpretation**: H-Vol @ q=0.70 meaningfully beats buy & hold on
+risk-adjusted return (0.78 vs 0.37, roughly 2×), but the level is nowhere
+near the 2.15 that the project had been reporting. The multi-seed optimum
+is q=**0.50**, not 0.70 — the current default is a seed-42 artifact. The
+correct action is to either (a) change the default to 0.50 or (b) report
+a multi-seed CI around 0.70 and accept it as within-noise.
+
+### Pristine holdout (A4 fix)
+
+`scripts/pristine_holdout.py` runs a coarse 13-config sweep on the
+**2015-2022 training slice only**, picks the winner by in-sample median
+Sharpe across 12 non-overlapping training windows, then evaluates once
+on the **never-seen 2023-2024 holdout**:
+
+| Config | 2023-2024 Sharpe | 2023-2024 CAGR | 2023-2024 Max DD |
+|---|---:|---:|---:|
+| Buy & hold | +1.91 | +137% | -26% |
+| Sweep winner (q=0.60, sell=-25, mtf=0.10) | +2.45 | +158% | -19% |
+| **Production H-Vol default (q=0.70)** | **+2.69** | **+182%** | **-19%** |
+
+The production default — which was **not** picked by the pristine sweep
+(its in-sample Sharpe was 0.28, below the winner's 0.40) — still produces
+the best holdout Sharpe. The 2023-2024 period is friendly to any
+vol-regime-filtered long-only BTC strategy, which means the in-sample/OOS
+gap (0.28 → 2.69) is real but mostly attributable to regime friendliness,
+not to genuine generalization. **Do not read the 2.69 as the "real" expected
+Sharpe** — read the 0.78 multi-seed number as the expected Sharpe and the
+2.69 as "what happens in a good regime."
+
+### Null-hypothesis testing (B1, B5, C6)
+
+- **Project-level DSR** (`scripts/project_level_dsr.py`): at per-sweep
+  n_trials=25 the 2.15 Sharpe has DSR=0.9999; at project-level n_trials≈1901
+  it collapses to DSR=**0.0000**. The headline does NOT survive correction
+  for the total number of trials run across all tiers.
+- **Monte-Carlo permutation test** (`scripts/permutation_test.py --quick`,
+  N=20 shuffles per window): Fisher-combined p-value across 16 windows =
+  **0.045**. The strategy rejects the null "you are trading noise" at
+  α=0.05, but barely, and only at quick-mode N. Full N=200 would tighten
+  this.
+- **Moving-block bootstrap 95% CI** (`scripts/block_bootstrap.py --quick`,
+  B=100): observed median Sharpe = 0.975, bootstrap CI = **[0.29, 2.23]**.
+  The 2.15 headline falls inside the upper end of the CI; the null (0.0)
+  is outside.
+- **Binomial significance on "beats B&H in X/16"** (`scripts/project_level_dsr.py`):
+  at face-value N=16, only H-Blend (13/16) and H-Vol (12/16) are
+  significant at α=0.05; after the effective-N=6 correction (§ 2 of
+  SKEPTIC_REVIEW), **none** of the "beats B&H" counts clear α=0.05.
+
+### Regime-filter ablation (C4 fix)
+
+`scripts/regime_ablation.py` strips each Markov component from the hybrid
+and replaces it with a constant signal, keeping the vol router intact:
+
+| Variant | median Sharpe | mean Sharpe | Δ vs full |
+|---|---:|---:|---:|
+| **Full hybrid** | **+0.81** | **+1.17** | — |
+| composite_only (HOMC → constant long) | +1.03 | +1.00 | +0.22 |
+| homc_only (composite → constant flat) | +0.91 | +0.88 | +0.10 |
+| **both constants (pure vol filter)** | **+0.95** | **+0.83** | +0.14 |
+
+**Interpretation**: the pure vol filter (no Markov chain at all) matches
+the full hybrid within 0.1-0.2 Sharpe. SKEPTIC_REVIEW § 5 is confirmed —
+on genuinely non-overlapping windows, the Markov components are
+decorative. The vol router is doing (almost) all the work. The correct
+simplification is to delete HOMC + composite and ship the one-line rule
+`target = +1.0 if vol_20d < q70_train else 0.0`.
+
+### Trivial baseline comparison on BTC (B4 fix)
+
+`scripts/trivial_baselines_btc.py` vs the hybrid on 16 non-overlapping
+seed-42 windows:
+
+| Strategy | median Sharpe | mean Sharpe | median CAGR | positive windows |
+|---|---:|---:|---:|---:|
+| Buy & hold | 0.79 | 0.94 | +70% | 8/16 |
+| Trend(200) | 0.00 | 0.41 | 0% | 7/16 |
+| Dual MA(50/200) | 0.50 | 0.54 | +32% | 8/16 |
+| **Vol-filter only (no Markov)** | **1.15** | 0.91 | +77% | 9/16 |
+| H-Vol hybrid | 0.73 | **1.11** | +31% | **10/16** |
+
+On the median, the pure vol filter (1.15) is actually **higher** than the
+full hybrid (0.73). On the mean, the hybrid is higher (1.11 vs 0.91).
+This matches the ablation result — the hybrid and the vol-only baseline
+are within 0.2-0.4 Sharpe of each other in either direction, and neither
+is convincingly better.
+
+### Cost sensitivity (B2/B3)
+
+`scripts/cost_sensitivity.py` 5×5 grid over commission × deadband:
+
+| commission_bps | Sharpe |
+|---:|---:|
+| 2.5 | 0.83 |
+| 5.0 | 0.81 |
+| 10.0 | 0.76 |
+| 15.0 | 0.72 |
+| 25.0 | 0.62 |
+
+**The deadband is inert**: varying `min_trade_fraction` from 0.05 to 0.30
+moves the median Sharpe by less than 0.005. Commission costs are
+approximately linear in their impact: a 20 bps commission increase (from
+5 to 25) costs about 0.19 of Sharpe. Nothing in the grid collapses by
+more than 0.5 from the baseline, so the strategy is **cost-robust in the
+2.5-25 bps range** — good news. But the fact that the deadband doesn't
+matter also means the `min_trade_fraction=0.20` default is purely
+cosmetic at current parameters.
+
+See [`scripts/data/plots/`](./scripts/data/plots) for visualizations
+(multi-seed quantile sweep, cost-sensitivity heatmap, regime ablation
+bar chart, bootstrap per-window CI).
 
 ## Headline result — ^GSPC, 16 random 6-month windows, seed 42
 

@@ -22,7 +22,7 @@ Critical design rules:
 
   1. **No lookahead.** The overlay consumes only realized vol up to the
      decision bar t (same rule the rest of the engine follows). The
-     engine passes in `row["volatility_20d"]` which is already computed
+     engine passes in `row["volatility"]` which is already computed
      with a trailing window.
 
   2. **Scale cap.** Without a max_scale cap, low-vol regimes can produce
@@ -99,7 +99,7 @@ def apply_vol_target(
         max long, 0.0 for flat, -0.5 for half short).
     realized_daily_vol : float
         Trailing realized daily return stdev (e.g., the engine's
-        `volatility_20d` column at bar t). Must be non-negative.
+        `volatility` column at bar t). Must be non-negative.
     config : VolTargetConfig
         Overlay configuration.
 

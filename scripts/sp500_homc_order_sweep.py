@@ -152,7 +152,7 @@ def main() -> None:
     # TRAIN_WINDOW bars) as a stand-in for what the HOMC typically sees.
     feats_full = pd.DataFrame(index=prices.index)
     feats_full["return_1d"] = log_returns(prices["close"])
-    feats_full["volatility_20d"] = rolling_volatility(feats_full["return_1d"], window=VOL_WINDOW)
+    feats_full["volatility"] = rolling_volatility(feats_full["return_1d"], window=VOL_WINDOW)
     feats_full = feats_full.dropna()
     representative_window = feats_full.iloc[-TRAIN_WINDOW:]
 

@@ -42,7 +42,11 @@ env/
 *.swo
 .DS_Store
 
-# Outputs
+# Outputs — PNGs are generally ignored, but keep the small set of
+# evaluation plots under scripts/data/plots/ so SKEPTIC_REVIEW results
+# are visible to a fresh clone.
 *.png
 *.pdf
 plots/
+!scripts/data/plots/
+!scripts/data/plots/*.png

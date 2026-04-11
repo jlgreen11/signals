@@ -112,7 +112,15 @@ class BacktestConfig:
     stop_cooldown_bars: int = 5
     min_trade_fraction: float = 0.20  # don't rebalance for changes smaller than this
     hold_preserves_position: bool = True  # HOLD signal keeps current position (trend-follow)
-    risk_free_rate: float = 0.0       # annualized; subtracted in Sharpe calc
+    # Annualized risk-free rate subtracted from returns in Sharpe. Default
+    # is 0.0 for backwards compatibility with the project's historical
+    # result docs, but SKEPTIC_REVIEW.md § 8c flags this as a small upward
+    # bias on reported Sharpes — the US 3-month T-bill averaged ~2.3% over
+    # 2018-2024 and peaked > 5% in 2023-2024. New result runs should pass
+    # `risk_free_rate=historical_usd_rate(window)` from
+    # signals.backtest.risk_free, which returns 0.023 for the 2018-2024
+    # reporting window by default.
+    risk_free_rate: float = 0.0
     # Annualization factor for Sharpe. None = legacy index-inference, which
     # returns 252 for any daily-cadence series — wrong for BTC (trades 365
     # days/year). Set to 365 for crypto, 252 for equities. See
@@ -144,20 +152,23 @@ class BacktestResult:
     trades: list = field(default_factory=list)
 
 
+#: Canonical feature column name for trailing realized volatility. The
+#: period is always `BacktestConfig.vol_window` bars — historically this
+#: column was called `volatility_20d` back when the window defaulted to
+#: 20, but the "tightened defaults" pass cut it to 10 without renaming.
+#: SKEPTIC_REVIEW.md § 8b flagged the name-vs-value mismatch. Tier B6 /
+#: § 19 landed the rename to a neutral `volatility` — every consumer
+#: (composite encoder, HMM, HOMC, hybrid router, vol-target overlay)
+#: reads this name. Do not re-introduce a hard-coded window in the name.
+VOLATILITY_COLUMN = "volatility"
+
+
 def _prepare_features(prices: pd.DataFrame, vol_window: int) -> pd.DataFrame:
     feats = pd.DataFrame(index=prices.index)
     feats["close"] = prices["close"]
     feats["open"] = prices["open"]
     feats["return_1d"] = log_returns(prices["close"])
-    # NOTE — SKEPTIC_REVIEW.md § 8b: this column is called `volatility_20d`
-    # but the default vol_window is 10 (see BacktestConfig). The name is
-    # historical — it predates the "tightened defaults" pass that cut the
-    # vol window from 20 to 10 — and is preserved to avoid a blast-radius
-    # rename across every model, every saved manifest, every test fixture,
-    # every result doc that references the column by name. Treat the name
-    # as opaque and look at `config.vol_window` for the actual period.
-    # A principled rename is tracked in IMPROVEMENTS_PROGRESS.md.
-    feats["volatility_20d"] = rolling_volatility(feats["return_1d"], window=vol_window)
+    feats[VOLATILITY_COLUMN] = rolling_volatility(feats["return_1d"], window=vol_window)
     return feats
 
 
@@ -233,13 +244,13 @@ class BacktestEngine:
     def _fit_kwargs(self) -> dict:
         if self.config.model_type == "hmm":
             return {
-                "feature_cols": ["return_1d", "volatility_20d"],
+                "feature_cols": ["return_1d", VOLATILITY_COLUMN],
                 "return_col": "return_1d",
             }
         if self.config.model_type == "composite":
             return {
                 "return_feature": "return_1d",
-                "volatility_feature": "volatility_20d",
+                "volatility_feature": VOLATILITY_COLUMN,
                 "return_col": "return_1d",
             }
         if self.config.model_type == "hybrid":
@@ -275,7 +286,7 @@ class BacktestEngine:
             df = df.loc[df.index <= pd.Timestamp(end, tz=df.index.tz or "UTC")]
 
         feats = _prepare_features(df, self.config.vol_window)
-        feats = feats.dropna(subset=["return_1d", "volatility_20d"])
+        feats = feats.dropna(subset=["return_1d", VOLATILITY_COLUMN])
         if len(feats) <= self.config.train_window + 1:
             raise ValueError(
                 f"Not enough data ({len(feats)}) for train_window={self.config.train_window}"
@@ -371,10 +382,10 @@ class BacktestEngine:
             # Volatility-targeting overlay. Scales the raw target by
             # target_annual_vol / realized_annualized_vol so that
             # expected portfolio vol over the next bar approximates the
-            # target. No-op when disabled. Uses bar-t's volatility_20d
+            # target. No-op when disabled. Uses bar-t's realized-vol
             # column (trailing-window realized vol, no lookahead).
             if vol_target_cfg.enabled and target != 0.0:
-                realized_vol = float(row["volatility_20d"])
+                realized_vol = float(row[VOLATILITY_COLUMN])
                 target = apply_vol_target(target, realized_vol, vol_target_cfg)
 
             portfolio.set_target(

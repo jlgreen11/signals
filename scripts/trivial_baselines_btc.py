@@ -36,7 +36,6 @@ Output artifact: `scripts/data/trivial_baselines_btc.parquet`
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -272,8 +271,14 @@ def _evaluate() -> pd.DataFrame:
             f"{SYMBOL} has too few bars for {N_WINDOWS} {SIX_MONTHS}-bar windows"
         )
 
-    rng = random.Random(SEED)
-    starts = sorted(rng.sample(range(min_start, max_start), N_WINDOWS))
+    from _window_sampler import draw_non_overlapping_starts
+    starts = draw_non_overlapping_starts(
+        seed=SEED,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=SIX_MONTHS,
+        n_windows=N_WINDOWS,
+    )
     strategies = _build_engine_strategies()
 
     rows: list[dict] = []

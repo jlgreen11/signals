@@ -1,0 +1,43 @@
+Block bootstrap — BTC-USD H-Vol @ q=0.7, seed=42, 16 windows, B=100, block_len=21
+  window 1/16: 2017-10-12 -> 2018-02-14
+    observed=+1.842  boot_mean=+1.790  95%CI=[-1.176, +5.970]  (n=125)
+  window 2/16: 2018-02-15 -> 2018-06-20
+    observed=-0.901  boot_mean=-1.009  95%CI=[-4.054, +1.428]  (n=125)
+  window 3/16: 2018-06-21 -> 2018-10-24
+    observed=-0.115  boot_mean=+0.010  95%CI=[-3.248, +3.807]  (n=125)
+  window 4/16: 2018-10-25 -> 2019-02-27
+    observed=+1.025  boot_mean=+1.027  95%CI=[-2.856, +4.602]  (n=125)
+  window 5/16: 2019-07-04 -> 2019-11-06
+    observed=-0.301  boot_mean=-0.210  95%CI=[-3.359, +2.339]  (n=125)
+  window 6/16: 2019-11-07 -> 2020-03-11
+    observed=-2.005  boot_mean=-0.851  95%CI=[-3.452, +1.695]  (n=125)
+  window 7/16: 2020-03-12 -> 2020-07-15
+    observed=+1.972  boot_mean=+1.638  95%CI=[-0.483, +4.046]  (n=125)
+  window 8/16: 2020-07-16 -> 2020-11-18
+    observed=+5.209  boot_mean=+4.464  95%CI=[+2.044, +6.656]  (n=125)
+  window 9/16: 2020-11-19 -> 2021-03-24
+    observed=+3.540  boot_mean=+3.819  95%CI=[+1.158, +7.288]  (n=125)
+  window 10/16: 2021-03-25 -> 2021-07-28
+    observed=+0.698  boot_mean=-0.240  95%CI=[-1.984, +2.026]  (n=125)
+  window 11/16: 2021-07-29 -> 2021-12-01
+    observed=-0.143  boot_mean=+0.082  95%CI=[-1.359, +1.494]  (n=125)
+  window 12/16: 2021-12-02 -> 2022-04-06
+    observed=-0.358  boot_mean=+0.555  95%CI=[-1.779, +2.649]  (n=125)
+  window 13/16: 2022-12-15 -> 2023-04-19
+    observed=+2.627  boot_mean=+2.861  95%CI=[-1.423, +7.244]  (n=125)
+  window 14/16: 2023-04-20 -> 2023-08-23
+    observed=+0.925  boot_mean=+1.122  95%CI=[-2.688, +4.221]  (n=125)
+  window 15/16: 2023-08-24 -> 2023-12-27
+    observed=+4.245  boot_mean=+4.374  95%CI=[+2.323, +6.616]  (n=125)
+  window 16/16: 2023-12-28 -> 2024-05-01
+    observed=+4.268  boot_mean=+4.796  95%CI=[+0.599, +8.678]  (n=125)
+
+================================================================================
+Aggregate — median-across-windows Sharpe CI (BTC-USD H-Vol q=0.7)
+================================================================================
+  observed median Sharpe     : +0.975
+  bootstrap mean-of-medians  : +1.222
+  95% CI (percentile method) : [+0.290, +2.230]
+  (elapsed: 2.1s, B=100)
+
+Wrote /Users/jlg/claude/signals/scripts/data/block_bootstrap.parquet

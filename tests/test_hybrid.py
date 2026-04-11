@@ -15,7 +15,7 @@ from signals.model.hybrid import DEFAULT_ROUTING, HybridRegimeModel
 def _features(prices: pd.DataFrame) -> pd.DataFrame:
     f = pd.DataFrame(index=prices.index)
     f["return_1d"] = log_returns(prices["close"])
-    f["volatility_20d"] = rolling_volatility(f["return_1d"], window=10)
+    f["volatility"] = rolling_volatility(f["return_1d"], window=10)
     return f.dropna()
 
 
@@ -198,14 +198,14 @@ def test_hybrid_vol_routing_selects_by_vol_threshold(synthetic_prices):
 
     # Force a high-vol observation by scaling the vol column
     high_vol = feats.copy()
-    high_vol["volatility_20d"] = high_vol["volatility_20d"] * 10
+    high_vol["volatility"] = high_vol["volatility"] * 10
     m.predict_state(high_vol)
     assert m.last_regime_label == "bear"
     assert m.active_component_name == "composite"
 
     # And a low-vol observation
     low_vol = feats.copy()
-    low_vol["volatility_20d"] = low_vol["volatility_20d"] * 0.01
+    low_vol["volatility"] = low_vol["volatility"] * 0.01
     m.predict_state(low_vol)
     assert m.last_regime_label == "bull"
     assert m.active_component_name == "homc"
@@ -256,7 +256,7 @@ def test_hybrid_blend_weight_ramps_linearly(synthetic_prices):
     def _with_vol(vol_value: float) -> pd.DataFrame:
         idx = pd.date_range("2020-01-01", periods=3, freq="D", tz="UTC")
         return pd.DataFrame(
-            {"return_1d": [0.0, 0.0, 0.0], "volatility_20d": [vol_value] * 3},
+            {"return_1d": [0.0, 0.0, 0.0], "volatility": [vol_value] * 3},
             index=idx,
         )
 
@@ -375,20 +375,20 @@ def test_hybrid_adaptive_vol_regime_switches_threshold(synthetic_prices):
     high_vol_obs = feats.copy()
     median = m._adaptive_median_vol
     assert median is not None
-    high_vol_obs.loc[high_vol_obs.index[-40:], "volatility_20d"] = median * 5
+    high_vol_obs.loc[high_vol_obs.index[-40:], "volatility"] = median * 5
 
     # And one where the last 30 vols are below median — low-vol regime
     low_vol_obs = feats.copy()
-    low_vol_obs.loc[low_vol_obs.index[-40:], "volatility_20d"] = median * 0.01
+    low_vol_obs.loc[low_vol_obs.index[-40:], "volatility"] = median * 0.01
 
     # In high-vol regime, current vol needs to exceed adaptive_high_value
     # to be classified as bear. We force it high enough.
-    high_vol_obs.loc[high_vol_obs.index[-1], "volatility_20d"] = median * 10
+    high_vol_obs.loc[high_vol_obs.index[-1], "volatility"] = median * 10
     m.predict_state(high_vol_obs)
     # Active component should reflect routing based on high threshold
     assert m.last_regime_label in ("bear", "bull")
 
-    low_vol_obs.loc[low_vol_obs.index[-1], "volatility_20d"] = median * 0.001
+    low_vol_obs.loc[low_vol_obs.index[-1], "volatility"] = median * 0.001
     m.predict_state(low_vol_obs)
     assert m.last_regime_label in ("bear", "bull")
 

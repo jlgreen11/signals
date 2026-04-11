@@ -14,14 +14,14 @@ from signals.model.hmm import HiddenMarkovModel
 def _features(prices: pd.DataFrame) -> pd.DataFrame:
     f = pd.DataFrame(index=prices.index)
     f["return_1d"] = log_returns(prices["close"])
-    f["volatility_20d"] = rolling_volatility(f["return_1d"], window=20)
+    f["volatility"] = rolling_volatility(f["return_1d"], window=20)
     return f.dropna()
 
 
 def test_hmm_fits_and_decodes(synthetic_prices):
     feats = _features(synthetic_prices)
     hmm = HiddenMarkovModel(n_states=3, n_iter=50).fit(
-        feats, feature_cols=["return_1d", "volatility_20d"]
+        feats, feature_cols=["return_1d", "volatility"]
     )
     assert hmm.fitted_
     assert hmm.transmat_.shape == (3, 3)
@@ -34,7 +34,7 @@ def test_hmm_fits_and_decodes(synthetic_prices):
 def test_hmm_predict_next_distribution(synthetic_prices):
     feats = _features(synthetic_prices)
     hmm = HiddenMarkovModel(n_states=3, n_iter=50).fit(
-        feats, feature_cols=["return_1d", "volatility_20d"]
+        feats, feature_cols=["return_1d", "volatility"]
     )
     probs = hmm.predict_next(0)
     assert probs.shape == (3,)
@@ -44,7 +44,7 @@ def test_hmm_predict_next_distribution(synthetic_prices):
 def test_hmm_save_load(tmp_path, synthetic_prices):
     feats = _features(synthetic_prices)
     hmm = HiddenMarkovModel(n_states=3, n_iter=50).fit(
-        feats, feature_cols=["return_1d", "volatility_20d"]
+        feats, feature_cols=["return_1d", "volatility"]
     )
     path = tmp_path / "hmm.pkl"
     hmm.save(path)
@@ -68,7 +68,7 @@ def test_hmm_label_orders_by_return():
 def test_hmm_n_step_distribution(synthetic_prices):
     feats = _features(synthetic_prices)
     hmm = HiddenMarkovModel(n_states=3, n_iter=50).fit(
-        feats, feature_cols=["return_1d", "volatility_20d"]
+        feats, feature_cols=["return_1d", "volatility"]
     )
     p3 = hmm.n_step(0, n=3)
     assert p3.sum() == pytest.approx(1.0, abs=1e-6)
@@ -79,10 +79,10 @@ def test_hmm_n_init_keeps_best_ll(synthetic_prices):
     on the same seed range."""
     feats = _features(synthetic_prices)
     single = HiddenMarkovModel(n_states=3, n_iter=50, n_init=1).fit(
-        feats, feature_cols=["return_1d", "volatility_20d"]
+        feats, feature_cols=["return_1d", "volatility"]
     )
     multi = HiddenMarkovModel(n_states=3, n_iter=50, n_init=4).fit(
-        feats, feature_cols=["return_1d", "volatility_20d"]
+        feats, feature_cols=["return_1d", "volatility"]
     )
     # Multi-start covers the single-start seed and at least 3 others, so its
     # best LL must be >= the single-start LL.
@@ -103,4 +103,4 @@ def test_hmm_strict_convergence_raises_when_too_few_iters(synthetic_prices):
         strict_convergence=True,
     )
     with pytest.raises(RuntimeError, match="did not converge"):
-        hmm.fit(feats, feature_cols=["return_1d", "volatility_20d"])
+        hmm.fit(feats, feature_cols=["return_1d", "volatility"])

@@ -138,9 +138,9 @@ def _features_for(symbol: str, interval: str, vol_window: int = 10) -> pd.DataFr
     feats = pd.DataFrame(index=df.index)
     feats["close"] = df["close"]
     feats["return_1d"] = log_returns(df["close"])
-    # Column name kept as "volatility_20d" for backward compatibility with the
-    # encoder's default feature name; the *window* itself is configurable.
-    feats["volatility_20d"] = rolling_volatility(feats["return_1d"], window=vol_window)
+    # Column is the canonical `volatility` name (see engine.VOLATILITY_COLUMN);
+    # actual window is `vol_window` bars.
+    feats["volatility"] = rolling_volatility(feats["return_1d"], window=vol_window)
     return feats.dropna()
 
 
@@ -155,12 +155,12 @@ def _build_model(model_type: str, n_states: int, order: int, n_iter: int, alpha:
 
 def _fit_model(model, feats: pd.DataFrame):
     if isinstance(model, HiddenMarkovModel):
-        model.fit(feats, feature_cols=["return_1d", "volatility_20d"], return_col="return_1d")
+        model.fit(feats, feature_cols=["return_1d", "volatility"], return_col="return_1d")
     elif isinstance(model, CompositeMarkovChain):
         model.fit(
             feats,
             return_feature="return_1d",
-            volatility_feature="volatility_20d",
+            volatility_feature="volatility",
             return_col="return_1d",
         )
     else:

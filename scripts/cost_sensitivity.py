@@ -42,7 +42,6 @@ cost sensitivity, not seed robustness (covered elsewhere).
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -171,8 +170,14 @@ def _pick_window_starts(prices: pd.DataFrame) -> list[int]:
             f"{SYMBOL} has too few bars for {N_WINDOWS} {SIX_MONTHS}-bar windows "
             f"with a {HOMC_TRAIN_WINDOW}-bar warmup"
         )
-    rng = random.Random(SEED)
-    return sorted(rng.sample(range(min_start, max_start), N_WINDOWS))
+    from _window_sampler import draw_non_overlapping_starts
+    return draw_non_overlapping_starts(
+        seed=SEED,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=SIX_MONTHS,
+        n_windows=N_WINDOWS,
+    )
 
 
 def _run_grid_commission_deadband(

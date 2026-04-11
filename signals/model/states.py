@@ -100,7 +100,7 @@ class CompositeStateEncoder(StateEncoder):
         return_bins: int = 3,
         volatility_bins: int = 3,
         return_feature: str = "return_1d",
-        volatility_feature: str = "volatility_20d",
+        volatility_feature: str = "volatility",
     ):
         self.return_bins = return_bins
         self.volatility_bins = volatility_bins

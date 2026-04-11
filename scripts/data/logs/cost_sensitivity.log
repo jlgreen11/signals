@@ -1,0 +1,59 @@
+BTC-USD: 3653 bars  (2015-01-01 → 2024-12-31)
+Selected 16 window starts (seed=42).
+[commission×deadband 1/25] commission_bps=2.5  min_trade_fraction=0.05
+[commission×deadband 2/25] commission_bps=2.5  min_trade_fraction=0.1
+[commission×deadband 3/25] commission_bps=2.5  min_trade_fraction=0.15
+[commission×deadband 4/25] commission_bps=2.5  min_trade_fraction=0.2
+[commission×deadband 5/25] commission_bps=2.5  min_trade_fraction=0.3
+[commission×deadband 6/25] commission_bps=5.0  min_trade_fraction=0.05
+[commission×deadband 7/25] commission_bps=5.0  min_trade_fraction=0.1
+[commission×deadband 8/25] commission_bps=5.0  min_trade_fraction=0.15
+[commission×deadband 9/25] commission_bps=5.0  min_trade_fraction=0.2
+[commission×deadband 10/25] commission_bps=5.0  min_trade_fraction=0.3
+[commission×deadband 11/25] commission_bps=10.0  min_trade_fraction=0.05
+[commission×deadband 12/25] commission_bps=10.0  min_trade_fraction=0.1
+[commission×deadband 13/25] commission_bps=10.0  min_trade_fraction=0.15
+[commission×deadband 14/25] commission_bps=10.0  min_trade_fraction=0.2
+[commission×deadband 15/25] commission_bps=10.0  min_trade_fraction=0.3
+[commission×deadband 16/25] commission_bps=15.0  min_trade_fraction=0.05
+[commission×deadband 17/25] commission_bps=15.0  min_trade_fraction=0.1
+[commission×deadband 18/25] commission_bps=15.0  min_trade_fraction=0.15
+[commission×deadband 19/25] commission_bps=15.0  min_trade_fraction=0.2
+[commission×deadband 20/25] commission_bps=15.0  min_trade_fraction=0.3
+[commission×deadband 21/25] commission_bps=25.0  min_trade_fraction=0.05
+[commission×deadband 22/25] commission_bps=25.0  min_trade_fraction=0.1
+[commission×deadband 23/25] commission_bps=25.0  min_trade_fraction=0.15
+[commission×deadband 24/25] commission_bps=25.0  min_trade_fraction=0.2
+[commission×deadband 25/25] commission_bps=25.0  min_trade_fraction=0.3
+[slippage 1/5] slippage_bps=2.5  (commission=5.0, deadband=0.2)
+[slippage 2/5] slippage_bps=5.0  (commission=5.0, deadband=0.2)
+[slippage 3/5] slippage_bps=10.0  (commission=5.0, deadband=0.2)
+[slippage 4/5] slippage_bps=15.0  (commission=5.0, deadband=0.2)
+[slippage 5/5] slippage_bps=25.0  (commission=5.0, deadband=0.2)
+
+==========================================================================================
+Grid 1 — median H-Vol Sharpe on 16 random BTC 6-month windows (seed 42)
+Rows: commission_bps   Columns: min_trade_fraction   (slippage fixed at 5.0)
+==========================================================================================
+commission\deadband |    0.05    0.10    0.15    0.20    0.30
+-------------------------------------------------------------
+              2.50 |    0.83    0.83    0.83    0.83    0.83
+              5.00 |    0.81    0.81    0.81    0.81    0.81
+             10.00 |    0.76    0.76    0.76    0.76    0.76
+             15.00 |    0.72    0.72    0.72    0.72    0.72
+             25.00 |    0.62    0.62    0.62    0.62    0.62
+
+==========================================================================================
+Grid 2 — median H-Vol Sharpe vs slippage_bps (commission=5.0, deadband=0.20)
+==========================================================================================
+slippage_bps |    2.50    5.00   10.00   15.00   25.00
+------------------------------------------------------------------------------------------
+median Sharpe|    0.83    0.81    0.76    0.72    0.62
+
+==========================================================================================
+Cost ridge — configs where median Sharpe drops by > 0.50 from baseline
+Baseline: commission=5.0, deadband=0.2, slippage=5.0  -->  median Sharpe = 0.81
+==========================================================================================
+No config in either grid drops Sharpe by more than 0.50 from baseline.
+
+Wrote 480 rows to /Users/jlg/claude/signals/scripts/data/cost_sensitivity.parquet

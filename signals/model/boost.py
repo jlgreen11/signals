@@ -106,8 +106,8 @@ class GradientBoostingModel:
         from sklearn.ensemble import GradientBoostingClassifier
 
         returns = observations[return_col].dropna()
-        if "volatility_20d" in observations.columns:
-            vol = observations["volatility_20d"]
+        if "volatility" in observations.columns:
+            vol = observations["volatility"]
         else:
             vol = returns.rolling(20, min_periods=20).std()
 
@@ -147,8 +147,8 @@ class GradientBoostingModel:
         if self._model is None:
             raise RuntimeError("GradientBoostingModel not fit")
         returns = observations["return_1d"].dropna()
-        if "volatility_20d" in observations.columns:
-            vol = observations["volatility_20d"]
+        if "volatility" in observations.columns:
+            vol = observations["volatility"]
         else:
             vol = returns.rolling(20, min_periods=20).std()
         features = _build_features(returns, vol).dropna()

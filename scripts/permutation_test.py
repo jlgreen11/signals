@@ -55,7 +55,6 @@ Run as:
 from __future__ import annotations
 
 import argparse
-import random
 import time
 from pathlib import Path
 
@@ -104,8 +103,14 @@ def _pick_window_starts(n_bars: int, n_windows: int, seed: int) -> list[int]:
             f"Not enough bars for {n_windows} {SIX_MONTHS}-bar windows "
             f"(have {n_bars})"
         )
-    rng = random.Random(seed)
-    return sorted(rng.sample(range(min_start, max_start), n_windows))
+    from _window_sampler import draw_non_overlapping_starts
+    return draw_non_overlapping_starts(
+        seed=seed,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=SIX_MONTHS,
+        n_windows=n_windows,
+    )
 
 
 def _run_strategy_sharpe(

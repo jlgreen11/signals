@@ -27,7 +27,6 @@ analysis.
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -133,8 +132,14 @@ def _draw_starts(n_bars: int, seed: int) -> list[int]:
             f"{HOMC_TRAIN_WINDOW}-bar warmup (min_start={min_start}, "
             f"max_start={max_start})"
         )
-    rng = random.Random(seed)
-    return sorted(rng.sample(range(min_start, max_start), N_WINDOWS))
+    from _window_sampler import draw_non_overlapping_starts
+    return draw_non_overlapping_starts(
+        seed=seed,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=SIX_MONTHS,
+        n_windows=N_WINDOWS,
+    )
 
 
 def _evaluate_seed_quantile(

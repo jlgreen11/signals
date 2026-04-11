@@ -17,7 +17,7 @@ def _features(prices: pd.DataFrame) -> pd.DataFrame:
     f["close"] = prices["close"]
     f["open"] = prices["open"]
     f["return_1d"] = log_returns(prices["close"])
-    f["volatility_20d"] = rolling_volatility(f["return_1d"], window=10)
+    f["volatility"] = rolling_volatility(f["return_1d"], window=10)
     return f.dropna()
 
 
