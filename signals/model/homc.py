@@ -25,7 +25,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from signals.model.states import QuantileStateEncoder
+from signals.model.states import (
+    QuantileStateEncoder,
+    StateEncoder,
+)
 
 REGIME_NAMES: dict[int, list[str]] = {
     3: ["bear", "neutral", "bull"],
@@ -41,7 +44,18 @@ class HigherOrderMarkovChain:
         n_states: int = 5,
         order: int = 3,
         alpha: float = 1.0,
+        encoder: StateEncoder | None = None,
     ):
+        """Construct a higher-order Markov chain over binned returns.
+
+        `encoder` is optional. If omitted (the default), the chain uses
+        a `QuantileStateEncoder(n_bins=n_states)` — the project's
+        historical behavior. Pass an `AbsoluteGranularityEncoder` (or
+        any other `StateEncoder`) to test alternative binning schemes.
+        When a custom encoder is supplied, `n_states` is REWRITTEN
+        after fit to match the encoder's actual bin count, so the
+        transitions table and state_returns_ arrays size correctly.
+        """
         if n_states < 2:
             raise ValueError("n_states must be >= 2")
         if order < 1:
@@ -49,7 +63,8 @@ class HigherOrderMarkovChain:
         self.n_states = int(n_states)
         self.order = int(order)
         self.alpha = float(alpha)
-        self._encoder: QuantileStateEncoder | None = None
+        self._custom_encoder: StateEncoder | None = encoder
+        self._encoder: StateEncoder | None = None
         self.feature_col_: str = "return_1d"
         self.return_col_: str = "return_1d"
         self.transitions_: dict[tuple[int, ...], np.ndarray] = {}
@@ -77,8 +92,23 @@ class HigherOrderMarkovChain:
                 f"states={self.n_states}); got {len(clean)}"
             )
 
-        self._encoder = QuantileStateEncoder(n_bins=self.n_states, feature=feature_col)
-        encoded = self._encoder.fit_transform(clean).dropna().astype(int)
+        if self._custom_encoder is not None:
+            self._encoder = self._custom_encoder
+            # Ensure the encoder reads the right feature column.
+            if hasattr(self._encoder, "feature"):
+                self._encoder.feature = feature_col
+            self._encoder.fit(clean)
+            # Re-size downstream arrays to match the encoder's actual
+            # bin count (absolute-width encoders vary n_states with
+            # the training data range).
+            self.n_states = int(self._encoder.n_states)
+            self.marginal_ = np.full(self.n_states, 1.0 / self.n_states)
+            self.state_returns_ = np.zeros(self.n_states)
+            self.state_counts_ = np.zeros(self.n_states, dtype=np.int64)
+            encoded = self._encoder.transform(clean).dropna().astype(int)
+        else:
+            self._encoder = QuantileStateEncoder(n_bins=self.n_states, feature=feature_col)
+            encoded = self._encoder.fit_transform(clean).dropna().astype(int)
         # Align returns to the encoded series
         rets = clean.loc[encoded.index, return_col].to_numpy()
         states = encoded.to_numpy()

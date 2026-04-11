@@ -84,6 +84,99 @@ class QuantileStateEncoder(StateEncoder):
         return f"q{state}/{self.n_bins}"
 
 
+class AbsoluteGranularityEncoder(StateEncoder):
+    """Bin a single feature (typically return_1d) into fixed-width buckets.
+
+    IMPROVEMENTS.md Tier-1 #1 / SKEPTIC_REVIEW follow-up Experiment 1.
+
+    Unlike `QuantileStateEncoder`, which recomputes bin edges each time
+    the distribution shifts, this encoder uses **fixed-width** bins
+    centered at zero. The Nascimento et al. (2022) paper's headline "7
+    steps of memory on BTC" finding was at an absolute 1% (0.01) return
+    granularity — memory structure that a quantile encoder almost
+    certainly destroys because it keeps redrawing the bins. This class
+    exists to close that theoretical gap.
+
+    The bin layout is symmetric around zero, with a fixed `bin_width`
+    between adjacent edges. The number of bins is computed to cover the
+    fitting data: enough negative bins to reach the training minimum,
+    enough positive bins to reach the training maximum, plus a buffer.
+    Out-of-range values at inference time are clipped to the extreme
+    bins.
+
+    Parameters
+    ----------
+    bin_width : float
+        Fixed width of each bin in the feature's units (e.g. 0.01 = 1%
+        returns, matching the Nascimento paper).
+    feature : str
+        DataFrame column to read.
+    buffer_bins : int
+        Number of extra bins to add beyond the training range on each
+        side, so minor regime expansion at inference doesn't produce
+        lots of out-of-range clipping. Default 2.
+    """
+
+    def __init__(
+        self,
+        bin_width: float = 0.01,
+        feature: str = "return_1d",
+        buffer_bins: int = 2,
+    ):
+        if bin_width <= 0:
+            raise ValueError("bin_width must be positive")
+        self.bin_width = float(bin_width)
+        self.feature = feature
+        self.buffer_bins = int(buffer_bins)
+        self.edges_: np.ndarray | None = None
+        # n_states is determined at fit time based on training range.
+        self.n_states: int = 0
+
+    def fit(self, df: pd.DataFrame) -> AbsoluteGranularityEncoder:
+        values = df[self.feature].dropna().to_numpy()
+        if len(values) < 10:
+            raise ValueError(
+                f"Not enough samples ({len(values)}) to fit absolute encoder"
+            )
+        lo = float(values.min())
+        hi = float(values.max())
+        # Compute integer bin indices covering [lo, hi], symmetric around
+        # zero with fixed width. Bin k spans [k*bin_width, (k+1)*bin_width).
+        k_lo = int(np.floor(lo / self.bin_width)) - self.buffer_bins
+        k_hi = int(np.ceil(hi / self.bin_width)) + self.buffer_bins
+        # Interior edges (strictly increasing): we'll expose the public
+        # `edges_` array in the same shape as QuantileStateEncoder —
+        # [-inf, e_1, e_2, ..., e_{n-1}, +inf] so _digitize returns
+        # indices in [0, n_states-1].
+        interior = np.arange(k_lo + 1, k_hi + 1, dtype=float) * self.bin_width
+        self.edges_ = np.concatenate(([-np.inf], interior, [np.inf]))
+        self.n_states = len(self.edges_) - 1
+        return self
+
+    def transform(self, df: pd.DataFrame) -> pd.Series:
+        if self.edges_ is None:
+            raise RuntimeError("encoder not fit")
+        values = df[self.feature].to_numpy()
+        states = _digitize(values, self.edges_)
+        out = pd.Series(states, index=df.index, name="state", dtype="Int64")
+        out[df[self.feature].isna()] = pd.NA
+        return out
+
+    def label(self, state: int) -> str:
+        if self.edges_ is None:
+            return f"abs{state}"
+        state_int = int(state)
+        if state_int < 0 or state_int >= self.n_states:
+            return f"abs{state_int}"
+        lo = self.edges_[state_int]
+        hi = self.edges_[state_int + 1]
+        if not np.isfinite(lo):
+            return f"[<{hi*100:+.1f}%]"
+        if not np.isfinite(hi):
+            return f"[>{lo*100:+.1f}%]"
+        return f"[{lo*100:+.1f}%,{hi*100:+.1f}%)"
+
+
 class CompositeStateEncoder(StateEncoder):
     """2D encoder: return bins × volatility bins → flat state index.
 
