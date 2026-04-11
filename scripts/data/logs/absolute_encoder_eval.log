@@ -1,0 +1,63 @@
+BTC-USD: train=2922 bars, full=3653 bars
+Pre-registered grid: 9 configs, 10 seeds, 10 windows each
+  Bin widths (absolute return %): 0.5%, 1.0%, 2.0%
+  Orders: (3, 5, 7)
+
+[1/9] abs_bw0.005_o3
+  avg median Sharpe: +0.000 ± 0.000  (min seed +0.000, max +0.000)  elapsed 11s
+
+[2/9] abs_bw0.005_o5
+  avg median Sharpe: +0.000 ± 0.000  (min seed +0.000, max +0.000)  elapsed 23s
+
+[3/9] abs_bw0.005_o7
+  avg median Sharpe: +0.000 ± 0.000  (min seed +0.000, max +0.000)  elapsed 35s
+
+[4/9] abs_bw0.010_o3
+  avg median Sharpe: +0.000 ± 0.000  (min seed +0.000, max +0.000)  elapsed 46s
+
+[5/9] abs_bw0.010_o5
+  avg median Sharpe: +0.000 ± 0.000  (min seed +0.000, max +0.000)  elapsed 57s
+
+[6/9] abs_bw0.010_o7
+  avg median Sharpe: +0.000 ± 0.000  (min seed +0.000, max +0.000)  elapsed 69s
+
+[7/9] abs_bw0.020_o3
+  avg median Sharpe: +0.000 ± 0.000  (min seed +0.000, max +0.000)  elapsed 80s
+
+[8/9] abs_bw0.020_o5
+  avg median Sharpe: +0.000 ± 0.000  (min seed +0.000, max +0.000)  elapsed 91s
+
+[9/9] abs_bw0.020_o7
+  avg median Sharpe: +0.000 ± 0.000  (min seed +0.000, max +0.000)  elapsed 103s
+
+[wrote] /Users/jlg/claude/signals/scripts/data/absolute_encoder_eval.parquet  (900 rows)
+
+================================================================================
+In-sample ranking (2015-2022, 10 seeds × 10 non-overlap windows)
+================================================================================
+         label  bin_width  order  mean  sem  min  max
+abs_bw0.005_o3      0.005      3   0.0  0.0  0.0  0.0
+abs_bw0.005_o5      0.005      5   0.0  0.0  0.0  0.0
+abs_bw0.005_o7      0.005      7   0.0  0.0  0.0  0.0
+abs_bw0.010_o3      0.010      3   0.0  0.0  0.0  0.0
+abs_bw0.010_o5      0.010      5   0.0  0.0  0.0  0.0
+abs_bw0.010_o7      0.010      7   0.0  0.0  0.0  0.0
+abs_bw0.020_o3      0.020      3   0.0  0.0  0.0  0.0
+abs_bw0.020_o5      0.020      5   0.0  0.0  0.0  0.0
+abs_bw0.020_o7      0.020      7   0.0  0.0  0.0  0.0
+
+In-sample winner: abs_bw0.005_o3  avg Sharpe +0.000 ± 0.000
+
+Evaluating winner on pristine holdout (2023-2024)...
+  Holdout Sharpe  : +0.000
+  Holdout CAGR    : +0.0%
+  Holdout Max DD  : +0.0%
+  Holdout trades  : 0
+
+================================================================================
+Verdict
+================================================================================
+  In-sample criterion (≥ 1.30):  FAIL  (+0.000)
+  Holdout criterion (> 0):          FAIL  (+0.000)
+  Overall: FAILURE
+[wrote] /Users/jlg/claude/signals/scripts/ABSOLUTE_ENCODER_RESULTS.md
