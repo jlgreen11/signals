@@ -198,6 +198,78 @@ class EnsembleModel:
             ):
                 model.save(component_path.with_suffix(".json"))
 
+    @staticmethod
+    def weights_from_sharpes(
+        sharpes: dict[str, float],
+        floor: float = 0.0,
+        negative_policy: str = "floor",
+    ) -> dict[str, float]:
+        """Convert a dict of component Sharpes to normalized weights.
+
+        This is the building block for a performance-weighted ensemble:
+        run each component in a validation window, pass the resulting
+        per-component Sharpe ratios here, and the output is a weight
+        dict that can be passed back into `EnsembleModel` via its
+        `components=[...]` constructor argument.
+
+        Parameters
+        ----------
+        sharpes
+            Dict mapping component name → recent out-of-sample Sharpe.
+        floor
+            Minimum weight to assign each component after normalization.
+            A floor > 0 prevents any single component from being
+            completely zeroed out.
+        negative_policy
+            How to handle negative Sharpes:
+              - "floor" (default): clip negatives to 0, then normalize.
+                Components with Sharpe <= 0 get only the `floor` weight.
+              - "shift": add |min_sharpe| + epsilon to all components so
+                the worst becomes barely positive. Preserves rank but
+                keeps all components alive.
+              - "keep": leave negatives as-is. Results may be nonsense
+                if the sum is near zero or negative — use at your own
+                risk.
+
+        Returns
+        -------
+        dict[str, float]
+            Weights summing to 1.0, one entry per input component.
+        """
+        if not sharpes:
+            return {}
+        if negative_policy == "shift":
+            min_s = min(sharpes.values())
+            offset = -min_s + 1e-6 if min_s < 0 else 0.0
+            scores = {k: v + offset for k, v in sharpes.items()}
+        elif negative_policy == "floor":
+            scores = {k: max(0.0, v) for k, v in sharpes.items()}
+        elif negative_policy == "keep":
+            scores = dict(sharpes)
+        else:
+            raise ValueError(f"unknown negative_policy: {negative_policy!r}")
+
+        total = sum(scores.values())
+        n = len(scores)
+        if total <= 0:
+            # All components are at the floor — fall back to equal weight
+            return {k: 1.0 / n for k in sharpes}
+
+        raw = {k: v / total for k, v in scores.items()}
+        if floor <= 0:
+            return raw
+
+        # Apply floor: each component gets at least `floor`. Remaining
+        # weight (1 - n*floor) is distributed proportionally.
+        if floor * n >= 1.0:
+            # Floor is too aggressive — fall back to equal weight.
+            return {k: 1.0 / n for k in sharpes}
+        remaining = 1.0 - floor * n
+        weighted = {k: floor + remaining * raw[k] for k in sharpes}
+        # Renormalize to correct any tiny FP drift.
+        total_w = sum(weighted.values())
+        return {k: v / total_w for k, v in weighted.items()}
+
     @classmethod
     def load(cls, path: Path | str) -> EnsembleModel:
         p = Path(path)

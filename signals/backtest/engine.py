@@ -24,6 +24,7 @@ import pandas as pd
 
 from signals.backtest.metrics import Metrics, compute_metrics
 from signals.backtest.portfolio import Portfolio
+from signals.backtest.vol_target import VolTargetConfig, apply_vol_target
 from signals.features.returns import log_returns
 from signals.features.volatility import rolling_volatility
 from signals.model.boost import GradientBoostingModel
@@ -112,6 +113,14 @@ class BacktestConfig:
     min_trade_fraction: float = 0.20  # don't rebalance for changes smaller than this
     hold_preserves_position: bool = True  # HOLD signal keeps current position (trend-follow)
     risk_free_rate: float = 0.0       # annualized; subtracted in Sharpe calc
+    # Volatility-targeting overlay (Tier-4 item — see signals/backtest/vol_target.py).
+    # Disabled by default to preserve baseline behavior; enable via
+    # `vol_target_enabled=True` plus an annual target (e.g., 0.20 for 20%).
+    vol_target_enabled: bool = False
+    vol_target_annual: float = 0.20
+    vol_target_periods_per_year: int = 365  # BTC trades daily; use 252 for equities
+    vol_target_max_scale: float = 2.0
+    vol_target_min_scale: float = 0.0
 
 
 @dataclass
@@ -263,6 +272,14 @@ class BacktestEngine:
             slippage_bps=self.config.slippage_bps,
         )
 
+        vol_target_cfg = VolTargetConfig(
+            enabled=self.config.vol_target_enabled,
+            annual_target=self.config.vol_target_annual,
+            periods_per_year=self.config.vol_target_periods_per_year,
+            max_scale=self.config.vol_target_max_scale,
+            min_scale=self.config.vol_target_min_scale,
+        )
+
         model = None
         generator: SignalGenerator | None = None
         bars_since_retrain = self.config.retrain_freq  # force initial fit
@@ -335,6 +352,15 @@ class BacktestEngine:
                 target = portfolio.position_fraction(close_price)
             else:
                 target = decision.target_position
+
+            # Volatility-targeting overlay. Scales the raw target by
+            # target_annual_vol / realized_annualized_vol so that
+            # expected portfolio vol over the next bar approximates the
+            # target. No-op when disabled. Uses bar-t's volatility_20d
+            # column (trailing-window realized vol, no lookahead).
+            if vol_target_cfg.enabled and target != 0.0:
+                realized_vol = float(row["volatility_20d"])
+                target = apply_vol_target(target, realized_vol, vol_target_cfg)
 
             portfolio.set_target(
                 next_ts, next_open, target,

@@ -47,7 +47,9 @@ def _run_on_window(
     eq = result.equity_curve.loc[result.equity_curve.index >= eval_start_ts]
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
-    return compute_metrics((eq / eq.iloc[0]) * cfg.initial_cash, [])
+    eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
+    eval_trades = [t for t in result.trades if t.ts >= eval_start_ts]
+    return compute_metrics(eq_rebased, eval_trades)
 
 
 def _baseline_cfg() -> BacktestConfig:
@@ -113,6 +115,7 @@ def main() -> None:
                     "cagr": float(m.cagr),
                     "sharpe": float(m.sharpe),
                     "max_dd": float(m.max_drawdown),
+                    "n_trades": int(m.n_trades),
                 })
                 sharpes.append(float(m.sharpe))
             elapsed = time.time() - t0

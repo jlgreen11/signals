@@ -29,6 +29,7 @@ env/
 # can inspect the raw per-window data without re-running the sweeps.
 !scripts/data/*.parquet
 !scripts/data/*.json
+!scripts/data/*.xlsx
 
 # Environment
 .env

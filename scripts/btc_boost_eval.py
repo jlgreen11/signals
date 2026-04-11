@@ -52,7 +52,8 @@ def _run_on_window(
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
-    return compute_metrics(eq_rebased, [])
+    eval_trades = [t for t in result.trades if t.ts >= eval_start_ts]
+    return compute_metrics(eq_rebased, eval_trades)
 
 
 def _baseline_cfg() -> BacktestConfig:
