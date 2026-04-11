@@ -214,70 +214,85 @@ class HybridRegimeModel:
         union of all model-specific fit kwargs without caring which subset
         applies.
         """
-        # 1. Regime signal: either HMM-based or volatility-based
-        if self.routing_strategy == "hmm":
-            self.regime_detector = HiddenMarkovModel(
-                n_states=self.regime_n_states,
-                n_iter=self.regime_n_iter,
-                random_state=self.regime_random_state,
+        # The Markov components are sunset as standalone models but are
+        # still the project's best-Sharpe production path when bundled
+        # via this hybrid. Suppress the sunset DeprecationWarning for
+        # component instantiation below — this is the endorsed usage
+        # path and the warning would be spam. The module-level
+        # suppression flag lives in `signals.model.homc` and is
+        # referenced by composite/hmm via `_emit_sunset_warning`.
+        from signals.model import homc as _homc_module
+
+        prior_suppress = _homc_module._SUPPRESS_SUNSET_WARNING
+        _homc_module._SUPPRESS_SUNSET_WARNING = True
+        try:
+            # 1. Regime signal: either HMM-based or volatility-based
+            if self.routing_strategy == "hmm":
+                self.regime_detector = HiddenMarkovModel(
+                    n_states=self.regime_n_states,
+                    n_iter=self.regime_n_iter,
+                    random_state=self.regime_random_state,
+                )
+                self.regime_detector.fit(
+                    observations,
+                    feature_cols=["return_1d", "volatility"],
+                    return_col="return_1d",
+                )
+            else:
+                # Vol-based routing: compute vol quantile(s) from the
+                # training window. The "vol" strategy uses a single
+                # threshold for hard switching; the "blend" strategy
+                # uses a low/high pair that defines a linear ramp; the
+                # "adaptive_vol" strategy uses a low/high pair plus a
+                # recent-vol pivot that selects between them based on
+                # the realized vol regime.
+                vols = observations["volatility"].dropna()
+                if len(vols) < 10:
+                    raise ValueError("Not enough vol observations to set threshold")
+                self._vol_threshold_value = float(
+                    vols.quantile(self.vol_quantile_threshold)
+                )
+                self._blend_low_value = float(vols.quantile(self.blend_low_quantile))
+                self._blend_high_value = float(vols.quantile(self.blend_high_quantile))
+                self._adaptive_low_value = float(
+                    vols.quantile(self.adaptive_low_quantile)
+                )
+                self._adaptive_high_value = float(
+                    vols.quantile(self.adaptive_high_quantile)
+                )
+                self._adaptive_median_vol = float(vols.median())
+                self.regime_detector = None
+
+            # 2. Composite component — trained on the trailing
+            # composite_train_window bars only, matching the standalone
+            # composite's tuning. Training on the full input slice
+            # blunts the bear-regime detection.
+            self.composite = CompositeMarkovChain(
+                return_bins=self.composite_return_bins,
+                volatility_bins=self.composite_volatility_bins,
+                alpha=self.composite_alpha,
             )
-            self.regime_detector.fit(
-                observations,
-                feature_cols=["return_1d", "volatility"],
+            composite_slice = observations.iloc[-self.composite_train_window :]
+            self.composite.fit(
+                composite_slice,
+                return_feature="return_1d",
+                volatility_feature="volatility",
                 return_col="return_1d",
             )
-        else:
-            # Vol-based routing: compute vol quantile(s) from the training
-            # window. The "vol" strategy uses a single threshold for hard
-            # switching; the "blend" strategy uses a low/high pair that
-            # defines a linear ramp; the "adaptive_vol" strategy uses a
-            # low/high pair plus a recent-vol pivot that selects between
-            # them based on the realized vol regime.
-            vols = observations["volatility"].dropna()
-            if len(vols) < 10:
-                raise ValueError("Not enough vol observations to set threshold")
-            self._vol_threshold_value = float(
-                vols.quantile(self.vol_quantile_threshold)
-            )
-            self._blend_low_value = float(vols.quantile(self.blend_low_quantile))
-            self._blend_high_value = float(vols.quantile(self.blend_high_quantile))
-            self._adaptive_low_value = float(
-                vols.quantile(self.adaptive_low_quantile)
-            )
-            self._adaptive_high_value = float(
-                vols.quantile(self.adaptive_high_quantile)
-            )
-            self._adaptive_median_vol = float(vols.median())
-            self.regime_detector = None
 
-        # 2. Composite component — trained on the trailing
-        # composite_train_window bars only, matching the standalone
-        # composite's tuning. Training on the full input slice blunts the
-        # bear-regime detection.
-        self.composite = CompositeMarkovChain(
-            return_bins=self.composite_return_bins,
-            volatility_bins=self.composite_volatility_bins,
-            alpha=self.composite_alpha,
-        )
-        composite_slice = observations.iloc[-self.composite_train_window :]
-        self.composite.fit(
-            composite_slice,
-            return_feature="return_1d",
-            volatility_feature="volatility",
-            return_col="return_1d",
-        )
-
-        # 3. HOMC component
-        self.homc = HigherOrderMarkovChain(
-            n_states=self.homc_n_states,
-            order=self.homc_order,
-            alpha=self.homc_alpha,
-        )
-        self.homc.fit(
-            observations,
-            feature_col="return_1d",
-            return_col="return_1d",
-        )
+            # 3. HOMC component
+            self.homc = HigherOrderMarkovChain(
+                n_states=self.homc_n_states,
+                order=self.homc_order,
+                alpha=self.homc_alpha,
+            )
+            self.homc.fit(
+                observations,
+                feature_col="return_1d",
+                return_col="return_1d",
+            )
+        finally:
+            _homc_module._SUPPRESS_SUNSET_WARNING = prior_suppress
 
         self.fitted_ = True
         return self

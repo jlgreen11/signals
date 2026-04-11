@@ -3,6 +3,15 @@
 Discovers latent market regimes from continuous observations (e.g. return + volatility)
 using Baum-Welch (EM). At inference time, the most likely current hidden state is
 recovered via Viterbi.
+
+⚠️  SUNSET as of 2026-04-11
+---------------------------------------------------------------------------
+The HMM routing strategy was also deprecated earlier (HOMC_TIER0C_HYBRID_RESULTS.md
+showed it whipsawed on ambiguous regimes). As of Round-4 the underlying HMM model
+class is sunset alongside HOMC / CompositeMarkovChain — none of the Markov model
+classes produce multi-seed Sharpe that beats the pure vol filter baseline in the
+controlled experiments (see `signals/model/homc.py` module docstring).
+Retained for back-compat; direct instantiation emits a DeprecationWarning.
 """
 
 from __future__ import annotations
@@ -12,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from signals.model.homc import _emit_sunset_warning
 
 
 class HiddenMarkovModel:
@@ -44,6 +55,7 @@ class HiddenMarkovModel:
         tol: float = 1e-3,
         strict_convergence: bool = False,
     ):
+        _emit_sunset_warning("HiddenMarkovModel")
         if n_states < 2:
             raise ValueError("n_states must be >= 2")
         self.n_states = int(n_states)

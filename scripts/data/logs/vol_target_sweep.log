@@ -1,0 +1,34 @@
+BTC-USD: 3653 bars
+Pre-registered grid: 4 configs, 10 seeds
+
+[1/4] baseline_no_vol_target
+  avg median Sharpe: +1.188 ± 0.025  (min +1.039, max +1.239)  elapsed 21s
+
+[2/4] vt_enabled_annual0.15
+  avg median Sharpe: +0.580 ± 0.036  (min +0.328, max +0.731)  elapsed 42s
+
+[3/4] vt_enabled_annual0.20
+  avg median Sharpe: +0.584 ± 0.135  (min -0.392, max +0.834)  elapsed 63s
+
+[4/4] vt_enabled_annual0.25
+  avg median Sharpe: +0.664 ± 0.074  (min +0.174, max +1.066)  elapsed 85s
+
+[wrote] /Users/jlg/claude/signals/scripts/data/vol_target_sweep.parquet
+
+================================================================================
+Multi-seed ranking — production bundle + vol_target overlay
+================================================================================
+                 label  vol_target_annual     mean      sem       min      max
+baseline_no_vol_target               0.00 1.187528 0.025459  1.038816 1.239416
+ vt_enabled_annual0.25               0.25 0.663754 0.074116  0.174265 1.065794
+ vt_enabled_annual0.20               0.20 0.583591 0.134911 -0.391707 0.834333
+ vt_enabled_annual0.15               0.15 0.579592 0.035627  0.328454 0.731196
+
+Baseline (vol_target OFF):   +1.188 ± 0.025  (min seed +1.039)
+Winner (baseline_no_vol_target): +1.188 ± 0.025  (min seed +1.039)
+Delta: +0.000
+
+Materiality (Δ ≥ 0.10):      FAIL
+Min-seed dominance:          FAIL
+Overall: NO CHANGE — keep production
+[wrote] /Users/jlg/claude/signals/scripts/VOL_TARGET_SWEEP_RESULTS.md

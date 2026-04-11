@@ -257,7 +257,6 @@ def _evaluate_holdout(
 ) -> tuple[float, float, float, int]:
     """Single-shot walk-forward on 2023-2024 holdout."""
     holdout_start_i = full_prices.index.searchsorted(HOLDOUT_START)
-    slice_start = max(0, holdout_start_i - HOMC_TRAIN_WINDOW - VOL_WINDOW - WARMUP_PAD)
     holdout_end_i = full_prices.index.searchsorted(HOLDOUT_END, side="right")
     return _run_one_window(
         full_prices,

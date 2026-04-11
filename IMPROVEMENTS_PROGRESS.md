@@ -4,6 +4,76 @@ Live tracking of what's landed from the skeptic review punch list. Updated
 as improvements merge. Reference the tier numbers against `SKEPTIC_REVIEW.md`
 for the original critique.
 
+## Round 4 — 2026-04-11 night — Markov sunset + 4 improvements
+
+### Markov closure
+
+`scripts/absolute_encoder_eval.py` (Experiment 1) and
+`scripts/rule_based_eval.py` (Experiment 2) closed the "is the Markov
+layer doing anything?" question on BTC. **Both failed the ≥1.30
+materiality threshold.**
+
+- Experiment 1 (`AbsoluteGranularityEncoder` at bin_width ∈ {0.005,
+  0.01, 0.02} × order ∈ {3, 5, 7}, 9 configs): every config produced
+  **+0.000 Sharpe with 0 trades**. The absolute-granularity branch of
+  the Nascimento paper fails under the project's walk-forward engine
+  for the same reason order=7 did — k-tuple sparsity makes expected
+  returns near-uniform and the default `SignalGenerator` collapses to
+  permanent HOLD/SELL.
+- Experiment 2 (`RuleBasedSignalGenerator` with top-K rule lookup +
+  P(direction) gate, 16 configs): winner `rule_k10_p0.60_o3_s7` at
+  **+0.567 ± 0.072** in-sample, +0.618 on pristine 2023–2024 holdout.
+  Positive but roughly half the vol-filter baseline ~1.15.
+
+### Markov sunset (not deleted)
+
+`HigherOrderMarkovChain`, `CompositeMarkovChain`, and `HiddenMarkovModel`
+now emit `DeprecationWarning` on direct instantiation. The hybrid's
+`fit()` sets a module-level suppression flag so it can compose them
+internally without spam. Six new tests in `tests/test_sunset_warnings.py`
+verify both paths. **Nothing is deleted** — the hybrid is still the BTC
+leg of the production recommendation and still posts the project's
+best-known Sharpe in isolation.
+
+### Four improvements attempted
+
+| # | experiment | script | multi-seed avg Sharpe | vs baseline | verdict |
+|---|---|---|---:|---:|---|
+| 1 | `vol_target` overlay on hybrid | `vol_target_sweep.py` | 0.66 (winner) vs 1.19 baseline | **−0.53** | 🔴 REJECT |
+| 2 | 4-asset equal-weight risk parity | `risk_parity_4asset.py` | **+1.695 ± 0.147** | **+0.507** | 🟢 **SHIP** |
+| 3 | 252→365 annualization fix | engine/metrics (Round 2) | n/a | already landed in Round 2 | ✅ done |
+| 4 | signal hysteresis widening | `hysteresis_sweep.py` | 1.188 (baseline wins) | +0.000 | 🔴 REJECT |
+
+**Winner: #2, the 4-asset equal-weight risk-parity portfolio** at
+**+1.695 ± 0.147** on 10 seeds × 16 non-overlapping 6-month windows,
+365/yr + rf=2.3%. Min-seed is +0.852, max is +2.065. The baseline is
+BTC alone via `BTC_HYBRID_PRODUCTION` on the correct min_start, which
+measures **+1.188 ± 0.025** — very stable across seeds, stderr 0.025
+is the tightest reading in the project. Delta +0.507 Sharpe is a large
+material improvement and it's structural (from diversification math),
+not parameter tuning.
+
+**Note on the Round-3 "1.551" number**: `explore_improvements.py` Tier 4
+measured the hybrid at 1.551 ± 0.099 but used an off-by-one
+`min_start = HOMC_TRAIN_WINDOW + vol_window + pad = 1015`, hardcoded to
+the legacy HOMC training window of 1000 rather than the Round-3
+winner's actual `train_window=750` (which implies `min_start=765`).
+The 1.551 reading was on a narrower (later-starting) eligible range
+than the full one. The methodologically correct number on the full
+range is 1.188 ± 0.025 (from both `vol_target_sweep.py` and
+`risk_parity_4asset.py` baselines). Still positive, still beats the
+pure vol filter baseline (~1.15 → 0.89 at 10 seeds), just a less
+dramatic headline than Round 3 claimed.
+
+### Ruff / tests
+
+- 188 tests pass (was 182; +6 sunset tests).
+- 301 deprecation warnings (expected, from existing tests that
+  instantiate the Markov models directly).
+- Ruff clean.
+
+---
+
 ## Round 3 — 2026-04-11 evening — large-grid search + q=0.50 bundle
 
 **Headline**: `scripts/explore_improvements.py` runs a 144-config

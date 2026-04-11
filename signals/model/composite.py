@@ -3,6 +3,15 @@
 This is the original model from Phase 1 (return-bin × volatility-bin states),
 re-implemented behind the same interface as HMM and HOMC so that the
 BacktestEngine can swap between all three transparently.
+
+⚠️  SUNSET as of 2026-04-11
+---------------------------------------------------------------------------
+Retained for internal use by `HybridRegimeModel` only. Direct usage emits
+a `DeprecationWarning`. See `signals/model/homc.py` module docstring for
+the full story on why the Markov path is sunset — short version: neither
+of the two experiments (`absolute_encoder_eval.py` +
+`rule_based_eval.py`) could produce a multi-seed Sharpe that beat the
+pure vol filter baseline by the required materiality threshold.
 """
 
 from __future__ import annotations
@@ -13,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from signals.model.homc import _emit_sunset_warning
 from signals.model.states import CompositeStateEncoder
 
 
@@ -25,6 +35,7 @@ class CompositeMarkovChain:
         volatility_bins: int = 3,
         alpha: float = 1.0,
     ):
+        _emit_sunset_warning("CompositeMarkovChain")
         if return_bins < 2 or volatility_bins < 2:
             raise ValueError("return_bins and volatility_bins must be >= 2")
         self.return_bins = int(return_bins)

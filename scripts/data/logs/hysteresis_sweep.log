@@ -1,0 +1,28 @@
+BTC-USD: 3653 bars
+Pre-registered grid: 3 pairs × 10 seeds
+
+[1/3] hyst_buy25_sell-35
+  avg +1.188 ± 0.025  (min +1.039, max +1.239)  elapsed 22s
+
+[2/3] hyst_buy30_sell-50
+  avg +1.176 ± 0.075  (min +0.795, max +1.593)  elapsed 43s
+
+[3/3] hyst_buy40_sell-60
+  avg +0.931 ± 0.121  (min +0.305, max +1.481)  elapsed 64s
+
+[wrote] /Users/jlg/claude/signals/scripts/data/hysteresis_sweep.parquet
+
+================================================================================
+Multi-seed ranking — hysteresis widening
+================================================================================
+             label  buy_bps  sell_bps     mean      sem      min      max
+hyst_buy25_sell-35     25.0     -35.0 1.187528 0.025459 1.038816 1.239416
+hyst_buy30_sell-50     30.0     -50.0 1.175896 0.075486 0.794918 1.593381
+hyst_buy40_sell-60     40.0     -60.0 0.930700 0.120986 0.304813 1.481089
+
+Baseline (buy=25, sell=-35):  +1.188
+Winner (hyst_buy25_sell-35):    +1.188  (Δ = +0.000)
+Materiality (Δ ≥ 0.05): FAIL
+Min-seed dominance:     FAIL
+Overall: NO CHANGE
+[wrote] /Users/jlg/claude/signals/scripts/HYSTERESIS_SWEEP_RESULTS.md

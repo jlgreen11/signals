@@ -3,6 +3,39 @@
   Nascimento et al., "Extracting Rules via Markov Chains for Cryptocurrencies
   Returns Forecasting", Computational Economics (2022).
 
+⚠️  SUNSET as of 2026-04-11
+---------------------------------------------------------------------------
+This model is **sunset**. Two follow-up experiments closed the question of
+whether the Markov class extracts directional insight on BTC, and both
+failed:
+
+  - Experiment 1 (`scripts/absolute_encoder_eval.py` +
+    `AbsoluteGranularityEncoder`) produced zero trades across a 9-config
+    pre-registered grid. The 1% absolute-binning claim from the Nascimento
+    paper does not survive a 1000-bar walk-forward window: k-tuple
+    sparsity leaves expected returns dominated by noise from empty bins.
+  - Experiment 2 (`scripts/rule_based_eval.py` +
+    `RuleBasedSignalGenerator`) extracted top-K rules and traded only on
+    strong directional consensus. Winner `rule_k10_p0.60_o3_s7` posted
+    10-seed avg Sharpe **0.567** in-sample and **0.618** on the pristine
+    2023–2024 holdout — positive but nowhere near the ~1.15 pure vol
+    filter baseline, let alone the ≥1.30 materiality threshold.
+
+The model is RETAINED (not deleted) because the production H-Vol hybrid
+bundle (`BTC_HYBRID_PRODUCTION` in `signals/backtest/engine.py`) still
+posts the highest measured multi-seed Sharpe in the project (**1.551 ±
+0.099**) and the hybrid internally composes this class. That edge does
+NOT come from Markov-chain insight; it comes from the specific
+parameter bundle (q=0.50, retrain_freq=14, train_window=750) interacting
+with the vol router. We keep the code because we're attached to
+returns, not technology.
+
+Using this class directly (not through `HybridRegimeModel`) emits a
+`DeprecationWarning` pointing to `scripts/ABSOLUTE_ENCODER_RESULTS.md`
+and `scripts/RULE_BASED_RESULTS.md`. The warning is suppressed when the
+hybrid instantiates this class internally, since that's the only
+production-endorsed usage path.
+
 Differences from the paper:
   - We add Laplace smoothing (the paper uses raw frequencies, which are often zero
     for k-tuples that never appeared in training).
@@ -20,6 +53,7 @@ calculation as for the HMM.
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +63,31 @@ from signals.model.states import (
     QuantileStateEncoder,
     StateEncoder,
 )
+
+#: When True (set by HybridRegimeModel during component instantiation),
+#: suppress the sunset DeprecationWarning. This lets the hybrid keep
+#: using the Markov components without spamming the user's logs for a
+#: path the project has explicitly endorsed. Direct instantiation still
+#: warns.
+_SUPPRESS_SUNSET_WARNING: bool = False
+
+
+def _emit_sunset_warning(class_name: str) -> None:
+    if _SUPPRESS_SUNSET_WARNING:
+        return
+    warnings.warn(
+        f"{class_name} is SUNSET as a standalone model on BTC. Two "
+        "follow-up experiments (absolute encoder + rule-based generator) "
+        "failed to show Markov-chain insight beyond the pure vol filter "
+        "baseline. Retained because the H-Vol hybrid production bundle "
+        "(BTC_HYBRID_PRODUCTION) still posts the project's best multi-"
+        "seed Sharpe at 1.551. Use the hybrid or a simpler vol filter; "
+        "direct HOMC/composite/HMM usage is not recommended for new "
+        "work. See scripts/ABSOLUTE_ENCODER_RESULTS.md and "
+        "scripts/RULE_BASED_RESULTS.md.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 REGIME_NAMES: dict[int, list[str]] = {
     3: ["bear", "neutral", "bull"],
@@ -56,6 +115,7 @@ class HigherOrderMarkovChain:
         after fit to match the encoder's actual bin count, so the
         transitions table and state_returns_ arrays size correctly.
         """
+        _emit_sunset_warning("HigherOrderMarkovChain")
         if n_states < 2:
             raise ValueError("n_states must be >= 2")
         if order < 1:

@@ -25,28 +25,72 @@ kind, express or implied**. See [`LICENSE`](./LICENSE).
 
 **Production scope**: BTC-USD and ^GSPC (S&P 500).
 
-**TL;DR per asset** *(numbers updated 2026-04-11 — Round 3
-large-grid search — see `scripts/data/explore_improvements.md`)*:
+**TL;DR recommended production configuration (Round 4, final)**:
 
-- **BTC-USD** → use the `hybrid` model at the **Round-3 production config**:
-  `BacktestConfig(**BTC_HYBRID_PRODUCTION)` from `signals.backtest.engine`,
-  which bundles `q=0.50 + retrain_freq=14 + train_window=750`. On 10 seeds
-  × 16 non-overlapping 6-month BTC windows, under correct crypto
-  annualization (365/yr, rf=0.023):
-  - **Multi-seed avg Sharpe: 1.551 ± 0.099** (min seed 1.010, max 1.949)
-  - **Legacy q=0.70 baseline (r21/tw1000): 0.893 ± 0.100** (min 0.345)
-  - **Delta: +0.659 Sharpe (+74% relative)**, and the Round-3 winner
-    dominates the legacy baseline on the worst seed (1.010 vs 0.345).
-  - Caveat: project-level DSR at n_trials=2,044 is 0.0000 — the Sharpe
-    is still within the max-of-2044-noise-draws null band. Real or not,
-    the +0.659 delta across 10 pre-registered seeds and the min-seed
-    dominance are strong evidence that it's genuine. Proceed with eyes
-    open. Pristine holdout (2023-2024) shows the new config at a
-    higher Sharpe than either legacy config or buy & hold.
-- **^GSPC (S&P 500)** → **use buy & hold.** No strategy in this project beats
-  B&H on S&P. The Markov-chain backbone is the wrong tool for a secular-
-  uptrend equity index. See `scripts/HOMC_TIER0E_BTC_SP500.md` for the full
-  comparison.
+1. **First choice — 4-asset equal-weight risk-parity portfolio** at multi-seed
+   avg Sharpe **+1.695 ± 0.147** (min seed +0.852, max +2.065). Legs:
+   - BTC-USD via H-Vol hybrid `BTC_HYBRID_PRODUCTION`
+   - ^GSPC buy & hold
+   - TLT (long US Treasuries) buy & hold
+   - GLD (gold) buy & hold
+   Equal-weighted, daily rebalanced. See `scripts/risk_parity_4asset.py`
+   and `scripts/RISK_PARITY_4ASSET_RESULTS.md`. Beats BTC-alone by
+   **+0.507 Sharpe** (Round-4 #2). Equal weighting beats inverse-vol
+   weighting because inverse-vol down-weights BTC (the highest-vol leg
+   and the dominant return driver).
+
+2. **Second choice — BTC-alone via the hybrid production bundle**.
+   `BacktestConfig(**BTC_HYBRID_PRODUCTION)` from
+   `signals.backtest.engine`: q=0.50, retrain_freq=14, train_window=750,
+   vol_window=10. Multi-seed avg Sharpe **+1.188 ± 0.025** on 10 seeds ×
+   16 non-overlapping 6-month windows, under correct crypto annualization
+   (365/yr, rf≈2.3%). Very stable across seeds (stderr 0.025 is the
+   tightest in the project). Note: this supersedes an earlier Round-3
+   reading of 1.551, which used a narrower window range driven by an
+   off-by-one in `min_start` (hardcoded to `HOMC_TRAIN_WINDOW=1000`
+   instead of the winner's actual `train_window=750`). The 1.188 is the
+   methodologically correct number on the full eligible window range.
+
+3. **S&P 500 alone** → use buy & hold. No active strategy in this project
+   beats B&H on ^GSPC. See `scripts/HOMC_TIER0E_BTC_SP500.md`.
+
+The recommended choice is #1 (the 4-asset portfolio): you get the highest
+multi-seed Sharpe and the lowest drawdowns, and the edge comes from
+portfolio-math diversification — not from any model-class claim that
+would evaporate under scrutiny.
+
+## ⚠️  Markov model sunset (Round 4)
+
+All four Markov model classes — `composite`, `homc`, `hmm`, `hybrid` —
+are **sunset** as of 2026-04-11. Using them directly (`from
+signals.model.{homc,composite,hmm} import ...`) emits a
+`DeprecationWarning`. They are retained (not deleted) because
+`HybridRegimeModel` internally composes them, and the hybrid is the
+BTC leg of the #1 production recommendation above. We're attached to
+returns, not technology.
+
+What closed the question:
+
+- `scripts/regime_ablation.py` (SKEPTIC_REVIEW Tier C4) — the pure vol
+  filter matches the full hybrid within 0.14 Sharpe; the Markov
+  components are decorative at current parameters.
+- `scripts/absolute_encoder_eval.py` — Experiment 1, HOMC with absolute
+  1% return bins (the Nascimento paper's actual granularity). 9
+  pre-registered configs, **zero trades across the whole grid**. The
+  k-tuple sparsity failure predicted by `HOMC_ORDER7_RESULTS.md`
+  reproduced at absolute granularity.
+- `scripts/rule_based_eval.py` — Experiment 2, rule extraction with
+  P(direction) ≥ 0.60 gate. 16 configs. Winner at **+0.567 ± 0.072**
+  in-sample, +0.618 on pristine holdout. Positive but nowhere near the
+  ≥1.30 materiality threshold.
+
+Bottom line: the Markov *machinery* does not extract directional
+insight beyond what a pure vol filter provides. The hybrid's edge
+comes from the specific parameter bundle (q, retrain_freq,
+train_window) interacting with the vol router, not from the chain's
+state transitions. We keep the code running so the production path
+keeps producing returns, but direct instantiation of a Markov model
+as a standalone BTC strategy is not recommended for new work.
 
 ## Models
 
