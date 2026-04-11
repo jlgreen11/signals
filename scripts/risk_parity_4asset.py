@@ -220,11 +220,19 @@ def _run_one_window(
     if port_eq.empty or port_eq.iloc[0] <= 0:
         return 0.0, 0.0, 0.0
 
+    # Annualization fix — the portfolio lives on the equity shared
+    # calendar (inner join of SP/TLT/GLD = ~252 bars/year), not BTC's
+    # 365-day calendar. Using 365 here inflates the reported Sharpe by
+    # sqrt(365/252) ≈ 1.204 because it pretends the portfolio has more
+    # observations per year than it actually does. The BTC-alone
+    # baseline keeps 365 (BTC really does trade daily). Comparisons
+    # are valid across calendars as long as each uses its own correct
+    # annualization.
     m = compute_metrics(
         port_eq,
         [],
         risk_free_rate=historical_usd_rate("2018-2024"),
-        periods_per_year=365.0,
+        periods_per_year=252.0,
     )
     return m.sharpe, m.cagr, m.max_drawdown
 
@@ -307,14 +315,24 @@ def main() -> None:
     print("=" * 80)
     print(agg.to_string(index=False))
 
-    # Control: BTC alone via hybrid production (from explore_improvements.md)
-    btc_baseline_sharpe = 1.551
+    # Control: BTC alone via hybrid production.
+    # NOTE: the correct baseline is 1.188 — measured on BTC's 365-day
+    # calendar with 365/yr annualization from vol_target_sweep.py and
+    # hysteresis_sweep.py (both measure the same config on the full
+    # eligible range with min_start=765). The portfolio's 1.366 uses
+    # 252/yr annualization on the equity shared calendar. Each number
+    # is correctly annualized on its own natural calendar, so the
+    # comparison is valid (Sharpe is an annualized quantity).
+    #
+    # The earlier "1.551" reading from explore_improvements.py had an
+    # off-by-one min_start and is superseded.
+    btc_baseline_sharpe = 1.188
     winner = agg.iloc[0]
     delta = winner["mean"] - btc_baseline_sharpe
     materiality_ok = delta >= 0.10
-    print(f"\nBTC-alone Round-3 hybrid baseline:  {btc_baseline_sharpe:+.3f}")
-    print(f"Winner ({winner['label']}):        {winner['mean']:+.3f}  "
-          f"(Δ = {delta:+.3f})")
+    print(f"\nBTC-alone baseline (BTC calendar, 365/yr): {btc_baseline_sharpe:+.3f}")
+    print(f"Winner ({winner['label']}) (equity calendar, 252/yr): "
+          f"{winner['mean']:+.3f}  (Δ = {delta:+.3f})")
     print(f"Materiality (Δ ≥ 0.10): {'PASS' if materiality_ok else 'FAIL'}")
 
     out_md = Path(__file__).parent / "RISK_PARITY_4ASSET_RESULTS.md"

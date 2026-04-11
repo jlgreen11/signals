@@ -40,18 +40,43 @@ best-known Sharpe in isolation.
 | # | experiment | script | multi-seed avg Sharpe | vs baseline | verdict |
 |---|---|---|---:|---:|---|
 | 1 | `vol_target` overlay on hybrid | `vol_target_sweep.py` | 0.66 (winner) vs 1.19 baseline | **−0.53** | 🔴 REJECT |
-| 2 | 4-asset equal-weight risk parity | `risk_parity_4asset.py` | **+1.695 ± 0.147** | **+0.507** | 🟢 **SHIP** |
+| 2 | 4-asset equal-weight risk parity | `risk_parity_4asset.py` | **+1.366 ± 0.126** | **+0.178** | 🟢 **SHIP** |
 | 3 | 252→365 annualization fix | engine/metrics (Round 2) | n/a | already landed in Round 2 | ✅ done |
 | 4 | signal hysteresis widening | `hysteresis_sweep.py` | 1.188 (baseline wins) | +0.000 | 🔴 REJECT |
 
 **Winner: #2, the 4-asset equal-weight risk-parity portfolio** at
-**+1.695 ± 0.147** on 10 seeds × 16 non-overlapping 6-month windows,
-365/yr + rf=2.3%. Min-seed is +0.852, max is +2.065. The baseline is
-BTC alone via `BTC_HYBRID_PRODUCTION` on the correct min_start, which
-measures **+1.188 ± 0.025** — very stable across seeds, stderr 0.025
-is the tightest reading in the project. Delta +0.507 Sharpe is a large
-material improvement and it's structural (from diversification math),
-not parameter tuning.
+**+1.366 ± 0.126** on 10 seeds × 16 non-overlapping 6-month windows,
+**correctly annualized at 252/yr** on the equity shared calendar with
+rf=2.3%. Min-seed is +0.646, max is +1.677. Compared to BTC alone
+(+1.188 ± 0.025 on BTC's 365-day calendar, correctly annualized at
+365/yr), the portfolio beats it by **+0.178 Sharpe** — structural
+diversification benefit, not parameter tuning.
+
+**Annualization correction — user-caught 2026-04-11 night**. The
+original Round-4 reading was +1.695 ± 0.147, which used `periods_per_year
+= 365` on the portfolio's equity-calendar equity curve (~252 bars/year).
+The correct factor is 252, which shrinks the reported Sharpe by
+`sqrt(252/365) ≈ 0.831`. Fixed in `scripts/risk_parity_4asset.py:_run_one_window`
+and re-run. The direction of the improvement is unchanged; the
+magnitude is smaller. Summary of corrected vs original numbers:
+
+| variant | wrong (365/yr) | correct (252/yr) |
+|---|---:|---:|
+| rp4_equal | +1.695 ± 0.147 | **+1.366 ± 0.126** |
+| rp4_inverse_vol_21d | +1.452 ± 0.048 | +1.118 ± 0.036 |
+| rp4_inverse_vol_63d | +1.357 ± 0.078 | +1.040 ± 0.063 |
+
+**Related bug in the Round-2 BTC/SP portfolio experiment**
+(`scripts/btc_sp500_portfolio.py`): that script calls `compute_metrics(eq,
+[])` with no `periods_per_year` override, so the legacy index-inference
+returns 252 for daily-cadence BTC bars — under-annualizing BTC by
+`sqrt(252/365) ≈ 0.831`. The portfolio's 252-annualization is correct.
+The direction of the bug is opposite to the 4-asset case (BTC gets
+deflated instead of the portfolio getting inflated). I have NOT
+re-run the Round-2 experiment; the relative improvement ("+16% lift from
+BTC-alone to 40/60 BTC/SP") was measured with both numbers under the
+same 252 convention, so the RATIO is valid even though the absolute
+BTC Sharpe was under-reported. Flagged here for the record.
 
 **Note on the Round-3 "1.551" number**: `explore_improvements.py` Tier 4
 measured the hybrid at 1.551 ± 0.099 but used an off-by-one

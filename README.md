@@ -25,19 +25,25 @@ kind, express or implied**. See [`LICENSE`](./LICENSE).
 
 **Production scope**: BTC-USD and ^GSPC (S&P 500).
 
-**TL;DR recommended production configuration (Round 4, final)**:
+**TL;DR recommended production configuration (Round 4, final, annualization-corrected)**:
 
 1. **First choice — 4-asset equal-weight risk-parity portfolio** at multi-seed
-   avg Sharpe **+1.695 ± 0.147** (min seed +0.852, max +2.065). Legs:
+   avg Sharpe **+1.366 ± 0.126** (min seed +0.646, max +1.677). Legs:
    - BTC-USD via H-Vol hybrid `BTC_HYBRID_PRODUCTION`
    - ^GSPC buy & hold
    - TLT (long US Treasuries) buy & hold
    - GLD (gold) buy & hold
    Equal-weighted, daily rebalanced. See `scripts/risk_parity_4asset.py`
    and `scripts/RISK_PARITY_4ASSET_RESULTS.md`. Beats BTC-alone by
-   **+0.507 Sharpe** (Round-4 #2). Equal weighting beats inverse-vol
-   weighting because inverse-vol down-weights BTC (the highest-vol leg
-   and the dominant return driver).
+   **+0.178 Sharpe** at each strategy's correct annualization (portfolio
+   on equity calendar at 252/yr, BTC alone on BTC calendar at 365/yr).
+   Equal weighting beats inverse-vol because inverse-vol down-weights
+   BTC, the highest-vol and highest-return leg.
+
+   *Earlier Round-4 reading (1.695 ± 0.147) was inflated by `sqrt(365/252)
+   ≈ 1.204` due to using 365/yr annualization on an equity-calendar
+   portfolio. Fixed 2026-04-11 night — see the note at the end of the
+   BTC section for a full history of annualization corrections.*
 
 2. **Second choice — BTC-alone via the hybrid production bundle**.
    `BacktestConfig(**BTC_HYBRID_PRODUCTION)` from
@@ -45,11 +51,7 @@ kind, express or implied**. See [`LICENSE`](./LICENSE).
    vol_window=10. Multi-seed avg Sharpe **+1.188 ± 0.025** on 10 seeds ×
    16 non-overlapping 6-month windows, under correct crypto annualization
    (365/yr, rf≈2.3%). Very stable across seeds (stderr 0.025 is the
-   tightest in the project). Note: this supersedes an earlier Round-3
-   reading of 1.551, which used a narrower window range driven by an
-   off-by-one in `min_start` (hardcoded to `HOMC_TRAIN_WINDOW=1000`
-   instead of the winner's actual `train_window=750`). The 1.188 is the
-   methodologically correct number on the full eligible window range.
+   tightest in the project).
 
 3. **S&P 500 alone** → use buy & hold. No active strategy in this project
    beats B&H on ^GSPC. See `scripts/HOMC_TIER0E_BTC_SP500.md`.
