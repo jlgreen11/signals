@@ -113,6 +113,13 @@ class BacktestConfig:
     min_trade_fraction: float = 0.20  # don't rebalance for changes smaller than this
     hold_preserves_position: bool = True  # HOLD signal keeps current position (trend-follow)
     risk_free_rate: float = 0.0       # annualized; subtracted in Sharpe calc
+    # Annualization factor for Sharpe. None = legacy index-inference, which
+    # returns 252 for any daily-cadence series — wrong for BTC (trades 365
+    # days/year). Set to 365 for crypto, 252 for equities. See
+    # SKEPTIC_REVIEW.md § 8a / Tier B6. The CLI auto-detects crypto vs
+    # equity symbols and overrides this; passing it explicitly via
+    # BacktestConfig(periods_per_year=...) always wins.
+    periods_per_year: float | None = None
     # Volatility-targeting overlay (Tier-4 item — see signals/backtest/vol_target.py).
     # Disabled by default to preserve baseline behavior; enable via
     # `vol_target_enabled=True` plus an annual target (e.g., 0.20 for 20%).
@@ -142,6 +149,14 @@ def _prepare_features(prices: pd.DataFrame, vol_window: int) -> pd.DataFrame:
     feats["close"] = prices["close"]
     feats["open"] = prices["open"]
     feats["return_1d"] = log_returns(prices["close"])
+    # NOTE — SKEPTIC_REVIEW.md § 8b: this column is called `volatility_20d`
+    # but the default vol_window is 10 (see BacktestConfig). The name is
+    # historical — it predates the "tightened defaults" pass that cut the
+    # vol window from 20 to 10 — and is preserved to avoid a blast-radius
+    # rename across every model, every saved manifest, every test fixture,
+    # every result doc that references the column by name. Treat the name
+    # as opaque and look at `config.vol_window` for the actual period.
+    # A principled rename is tracked in IMPROVEMENTS_PROGRESS.md.
     feats["volatility_20d"] = rolling_volatility(feats["return_1d"], window=vol_window)
     return feats
 
@@ -397,10 +412,16 @@ class BacktestEngine:
             bench = pd.Series(dtype=float, name="benchmark")
 
         metrics = compute_metrics(
-            equity_curve, portfolio.trades, risk_free_rate=self.config.risk_free_rate
+            equity_curve,
+            portfolio.trades,
+            risk_free_rate=self.config.risk_free_rate,
+            periods_per_year=self.config.periods_per_year,
         )
         bench_metrics = compute_metrics(
-            bench, [], risk_free_rate=self.config.risk_free_rate
+            bench,
+            [],
+            risk_free_rate=self.config.risk_free_rate,
+            periods_per_year=self.config.periods_per_year,
         )
 
         return BacktestResult(

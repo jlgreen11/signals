@@ -28,8 +28,12 @@ kind, express or implied**. See [`LICENSE`](./LICENSE).
 **TL;DR per asset**:
 
 - **BTC-USD** → use the `hybrid` model (`H-Vol` routing at `vol_quantile=0.70`).
-  Median Sharpe 2.15 on random-window evaluation, holdout Sharpe 2.21 on
-  2023-2024 BTC bull, 0.99 on BTC bear-stress.
+  Median Sharpe 2.15 **at seed=42** on random-window evaluation (4-seed
+  average ≈ **1.00**, seed 7 = **−0.27**). Treat as an in-sample measurement
+  until multi-seed validation completes. Holdout Sharpe 2.21 on 2023-2024 BTC
+  bull, 0.99 on BTC bear-stress — but note the tuning process had visibility
+  into the same 2023-2024 period, so this is not a pristine out-of-sample
+  test.
 - **^GSPC (S&P 500)** → **use buy & hold.** No strategy in this project beats
   B&H on S&P. The Markov-chain backbone is the wrong tool for a secular-
   uptrend equity index. See `scripts/HOMC_TIER0E_BTC_SP500.md` for the full
@@ -54,18 +58,30 @@ and CLI work with any of them transparently.
 
 ## Headline result — BTC-USD, 16 random 6-month windows, seed 42
 
+> **⚠ Seed variance warning**: The median Sharpe numbers below are measured at
+> `random.Random(seed=42)` only. Across 4 alternative seeds {7, 42, 100, 999}
+> the same H-Vol @ q=0.70 baseline averages a median Sharpe of **~1.00** with
+> a spread from **−0.27 (seed 7) to 2.15 (seed 42)**. The seed-42 result is at
+> the high end of this distribution. A full 10+ seed multi-seed re-validation
+> is pending; see [`SKEPTIC_REVIEW.md`](./SKEPTIC_REVIEW.md) § 1 for detail.
+> Until that completes, treat 2.15 as the best of a small sample, not a robust
+> point estimate.
+
 The random-window evaluation is the most robust validation methodology in the
 project: it samples windows across bull, bear, and chop regimes and reports
 per-window performance + head-to-head counts.
 
 | Metric | B&H | Composite | HOMC | H-Vol @ 0.70 | H-Blend |
 |---|---:|---:|---:|---:|---:|
-| **Median Sharpe** | 1.18 | 1.44 | 1.83 | **2.15** 🏆 | 2.06 |
+| **Median Sharpe** | 1.18 | 1.44† | 1.83† | **2.15**† 🏆 | 2.06† |
 | Mean Sharpe | 1.03 | 1.10 | 1.39 | 1.59 | 1.48 |
 | Median CAGR | +101% | +44% | +118% | **+156%** | +141% |
 | Mean Max DD | -28% | -21% | -23% | -21% | -22% |
 | Sharpe capture vs oracle | — | 16% | 22% | **23%** | 21% |
 | Positive CAGR windows | 9/16 | 11/16 | 10/16 | **12/16** | 13/16 |
+
+† seed=42. Multi-seed average Sharpe ≈ 1.00 ± 0.6 for H-Vol @ q=0.70. See
+[`SKEPTIC_REVIEW.md`](./SKEPTIC_REVIEW.md) § 1.
 
 **H-Vol @ q=0.70 is the BTC production default.** H-Blend is a close second on
 the median but ~0.08 Sharpe behind on the best-case pair. See
@@ -259,7 +275,8 @@ signals/
 pytest --cov=signals
 ```
 
-**92 tests** across:
+**140+ tests passing** (code correctness, not statistical validation — see
+[`SKEPTIC_REVIEW.md`](./SKEPTIC_REVIEW.md) § 8d) across:
 
 - `test_lookahead.py` — strict no-lookahead regression. Asserts equity
   curves up to bar N are bit-identical regardless of how much future data
@@ -322,9 +339,57 @@ Earlier foundational work:
 | `allow_short` | `False` | BTC's secular uptrend punishes shorts |
 | `stop_loss_pct` | `0.0` | Empirically unhelpful — sell signal exits faster |
 | `hybrid_routing_strategy` | `"vol"` | `"vol"` (default), `"hmm"`, or `"blend"` |
-| `hybrid_vol_quantile` | `0.70` | Tuned from sweep (was 0.75) |
+| `hybrid_vol_quantile` | `0.70` | Tuned from seed-42 sweep (was 0.75). Not validated at multi-seed — see [`SKEPTIC_REVIEW.md`](./SKEPTIC_REVIEW.md) § 1 / § A5. |
 | `hybrid_blend_low` | `0.50` | H-Blend ramp low |
 | `hybrid_blend_high` | `0.85` | H-Blend ramp high |
+
+## Methodology caveats
+
+An external skeptic teardown of this repo is in
+[`SKEPTIC_REVIEW.md`](./SKEPTIC_REVIEW.md). The critical items that affect how
+the headline numbers should be read:
+
+1. **Single-seed headline numbers.** Every "median Sharpe" in this README is
+   measured at `random.Random(seed=42)`. The same H-Vol @ q=0.70 baseline
+   averages ~1.00 across 4 seeds, with one seed going negative (−0.27). Fix
+   in progress: `scripts/multi_seed_eval.py` runs the baseline at 10+ seeds
+   and publishes the full distribution.
+2. **Window non-overlap is documented but was not enforced.** The pinned doc
+   `RANDOM_WINDOW_EVAL.md` claims "16 non-overlapping 6-month windows"; the
+   original `scripts/random_window_eval.py` used `random.sample` and did not
+   enforce spacing. Several windows in the seed-42 draw share 75–95% of their
+   bars. Effective independent-sample count is ~6, not 16. **Landed**:
+   `scripts/random_window_eval.py` now uses rejection sampling with minimum
+   126-bar spacing and clamps `n_windows` to the maximum that fits the
+   eligible range. The pinned numbers in the old `RANDOM_WINDOW_EVAL.md`
+   predate this fix and need to be regenerated.
+3. **Holdout window was visible during defaults tightening.** The "tightened
+   defaults" (`vol_window=10`, `buy_bps=25`, `sell_bps=-35`, etc.) were tuned
+   in iterations that had full visibility of the 2023–2024 holdout. Fix
+   pending: a pristine-holdout pass that re-tunes on 2015–2022 only and
+   reports the 2023–2024 window exactly once is on the Tier A4 punch list
+   (see [`IMPROVEMENTS_PROGRESS.md`](./IMPROVEMENTS_PROGRESS.md)).
+4. **Every reported config has DSR = 0.00 at per-sweep correction.** The
+   deflated Sharpe test fires on every sweep; the project proceeds by
+   overriding it with holdout evidence (which is itself not pristine — see
+   item 3). **Landed**: `scripts/project_level_dsr.py` reports DSR at
+   per-sweep (25), per-tier (200), and project-level (~1,900) trial counts.
+   Output pinned at `scripts/data/project_level_dsr.md`. Headline finding:
+   **the Sharpe 2.15 has DSR ≈ 0.00 at project-level n_trials** — the
+   skeptic's critique here is empirically confirmed.
+5. **BTC Sharpe was annualized at 252, not 365.** `signals/backtest/metrics.py`
+   used to return `252.0` for daily bars, which is the equities convention,
+   while `signals/backtest/vol_target.py` uses `365` for crypto. This
+   underreported the BTC headline by a factor of `sqrt(252/365) ≈ 0.83`
+   (the 2.15 figure becomes ~2.59 under the correct convention).
+   **Landed**: `compute_metrics` now accepts an explicit `periods_per_year`
+   override, plumbed through `BacktestConfig.periods_per_year`. Pass 365 for
+   crypto, 252 for equities.
+6. **Transaction costs are a single point (5 bps + 5 bps).** No sensitivity
+   surface. The `min_trade_fraction = 0.20` deadband is entangled with the
+   cost assumption and has not been swept independently. Fix in progress:
+   `scripts/cost_sensitivity.py` runs a 2-D grid over `commission_bps` ×
+   `min_trade_fraction` at the production H-Vol config.
 
 ## Roadmap
 

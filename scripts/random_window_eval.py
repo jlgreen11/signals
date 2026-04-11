@@ -206,7 +206,36 @@ def _evaluate_symbol(
         )
 
     rng = random.Random(seed)
-    starts = sorted(rng.sample(range(min_start, max_start), n_windows))
+    # SKEPTIC_REVIEW.md § 2 / Tier A2 fix: enforce non-overlap. Previously
+    # used rng.sample(...) which draws distinct starts but does NOT guarantee
+    # any spacing between them — four of the original seed-42 windows clustered
+    # inside January 2019 and shared 75-95% of their bars. We now reject-sample
+    # until every pair of starts is at least `six_months` bars apart. Because
+    # the eligible range is finite (~1400 bars for BTC 2015-2024 after the
+    # 1000-bar HOMC warmup), the maximum number of truly non-overlapping
+    # windows is floor((max_start - min_start) / six_months). If the caller
+    # asks for more, we log a warning and return as many as fit.
+    max_fit = (max_start - min_start) // six_months
+    if n_windows > max_fit:
+        print(
+            f"  [WARN] requested n_windows={n_windows} exceeds max non-overlapping "
+            f"count {max_fit} for this range; clamping to {max_fit}"
+        )
+        n_windows = max_fit
+    starts: list[int] = []
+    attempts = 0
+    max_attempts = 10_000
+    while len(starts) < n_windows and attempts < max_attempts:
+        candidate = rng.randrange(min_start, max_start)
+        if all(abs(candidate - s) >= six_months for s in starts):
+            starts.append(candidate)
+        attempts += 1
+    if len(starts) < n_windows:
+        raise RuntimeError(
+            f"Could not place {n_windows} non-overlapping {six_months}-bar windows "
+            f"in [{min_start}, {max_start}) after {max_attempts} attempts"
+        )
+    starts.sort()
     strategies = _build_strategies(vol_window, homc_train_window)
 
     rows: list[dict] = []

@@ -33,7 +33,21 @@ class Metrics:
         }
 
 
-def _annualization_factor(equity: pd.Series) -> float:
+def _annualization_factor(
+    equity: pd.Series,
+    periods_per_year: float | None = None,
+) -> float:
+    """Bars-per-year used to annualize the Sharpe ratio.
+
+    If `periods_per_year` is provided (e.g. 365 for crypto, 252 for equities)
+    we use it directly. Otherwise we infer from the index spacing — but the
+    legacy inference rule returns 252 for any daily-cadence series, which is
+    wrong for BTC (trades 365 days/year). SKEPTIC_REVIEW.md § 8a flags this.
+    Callers that know the asset should pass `periods_per_year` explicitly;
+    the engine now does so via `BacktestConfig.periods_per_year`.
+    """
+    if periods_per_year is not None:
+        return float(periods_per_year)
     if len(equity) < 2:
         return 252.0
     deltas = (equity.index[1:] - equity.index[:-1]).total_seconds()
@@ -130,12 +144,20 @@ def compute_metrics(
     equity: pd.Series,
     trades: list,
     risk_free_rate: float = 0.0,
+    periods_per_year: float | None = None,
 ) -> Metrics:
+    """Compute performance metrics for an equity curve.
+
+    `periods_per_year`, when provided, overrides the index-inferred
+    annualization factor. Pass 365 for crypto (BTC trades 365 days/year) or
+    252 for equities. If omitted, falls back to legacy index-inference which
+    returns 252 for any daily cadence — see SKEPTIC_REVIEW.md § 8a.
+    """
     if equity.empty:
         return Metrics(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
 
     returns = equity.pct_change().dropna()
-    periods = _annualization_factor(equity)
+    periods = _annualization_factor(equity, periods_per_year=periods_per_year)
     sr = sharpe_ratio(returns, periods, risk_free_rate=risk_free_rate)
     mdd = max_drawdown(equity)
     cg = cagr(equity)

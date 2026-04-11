@@ -115,6 +115,19 @@ class HybridRegimeModel:
             raise ValueError(
                 f"routing_strategy must be one of {ROUTING_STRATEGIES}"
             )
+        # SKEPTIC_REVIEW.md § C5: HMM-based routing was shown in Tier-0c
+        # (HOMC_TIER0C_HYBRID_RESULTS.md) to whipsaw catastrophically on
+        # ambiguous regimes (median Sharpe 0.37 vs H-Vol's 1.92). It is
+        # retained for historical comparisons but should NOT be used as a
+        # production config. Emit a runtime warning so anyone who stumbles
+        # into it via the CLI sees the deprecation.
+        if routing_strategy == "hmm":
+            log.warning(
+                "routing_strategy='hmm' is DEPRECATED — HMM-based regime "
+                "routing whipsaws on ambiguous regimes (see "
+                "HOMC_TIER0C_HYBRID_RESULTS.md; median Sharpe 0.37 vs "
+                "H-Vol's 1.92). Use routing_strategy='vol' for production."
+            )
         self.regime_n_states = int(regime_n_states)
         self.regime_n_iter = int(regime_n_iter)
         self.regime_random_state = int(regime_random_state)
