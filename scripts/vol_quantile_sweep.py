@@ -34,6 +34,18 @@ from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
+
+def _periods_per_year(symbol: str) -> float:
+    """Return the correct annualization factor for a given symbol.
+
+    BTC / crypto trades 365 days/year; US equity indices trade ~252/year.
+    Mirrors the helper in scripts/random_window_eval.py.
+    """
+    if symbol.endswith("-USD"):
+        return 365.0
+    return 252.0
+
+
 SYMBOLS = [
     ("BTC-USD", pd.Timestamp("2015-01-01", tz="UTC"), pd.Timestamp("2024-12-31", tz="UTC")),
     ("^GSPC",   pd.Timestamp("2015-01-01", tz="UTC"), pd.Timestamp("2024-12-31", tz="UTC")),
@@ -83,7 +95,7 @@ def _run_on_window(
         eq_rebased,
         [],
         risk_free_rate=historical_usd_rate("2018-2024"),
-        periods_per_year=365.0,
+        periods_per_year=_periods_per_year(symbol),
     )
 
 
