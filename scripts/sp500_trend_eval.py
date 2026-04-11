@@ -23,14 +23,15 @@ for consistency with prior results.
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 
 import pandas as pd
+from _window_sampler import draw_non_overlapping_starts
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
 from signals.backtest.portfolio import Portfolio
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -170,7 +171,12 @@ def _run_strategy_on_window(
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
-    return compute_metrics(eq_rebased, [])
+    return compute_metrics(
+        eq_rebased,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=252.0,
+    )
 
 
 def main() -> None:
@@ -188,8 +194,13 @@ def main() -> None:
 
     min_start = homc_train_window + vol_window + warmup_pad
     max_start = len(prices) - six_months - 1
-    rng = random.Random(seed)
-    starts = sorted(rng.sample(range(min_start, max_start), n_windows))
+    starts = draw_non_overlapping_starts(
+        seed=seed,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=six_months,
+        n_windows=n_windows,
+    )
     strategies = _build_strategies(vol_window, homc_train_window)
 
     rows: list[dict] = []
@@ -205,10 +216,20 @@ def main() -> None:
             )
 
         p_oracle = run_perfect_oracle(eval_window, allow_short=False)
-        m_oracle = compute_metrics(p_oracle.equity_series(), p_oracle.trades)
+        m_oracle = compute_metrics(
+            p_oracle.equity_series(),
+            p_oracle.trades,
+            risk_free_rate=historical_usd_rate("2018-2024"),
+            periods_per_year=252.0,
+        )
 
         bh_eq = (eval_window["close"] / eval_window["close"].iloc[0]) * 10_000.0
-        m_bh = compute_metrics(bh_eq, [])
+        m_bh = compute_metrics(
+            bh_eq,
+            [],
+            risk_free_rate=historical_usd_rate("2018-2024"),
+            periods_per_year=252.0,
+        )
 
         row = {
             "start": eval_window.index[0].date(),

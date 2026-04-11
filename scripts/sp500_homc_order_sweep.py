@@ -29,14 +29,15 @@ but they're representative of what the model "sees" at each order.
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from _window_sampler import draw_non_overlapping_starts
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 from signals.features.returns import log_returns
@@ -95,7 +96,12 @@ def _run_on_window(
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
-    return compute_metrics(eq_rebased, [])
+    return compute_metrics(
+        eq_rebased,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=252.0,
+    )
 
 
 def _snapshot_transition_stats(
@@ -163,8 +169,13 @@ def main() -> None:
     seed = 42
     min_start = TRAIN_WINDOW + VOL_WINDOW + warmup_pad
     max_start = len(prices) - six_months - 1
-    rng = random.Random(seed)
-    starts = sorted(rng.sample(range(min_start, max_start), n_windows))
+    starts = draw_non_overlapping_starts(
+        seed=seed,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=six_months,
+        n_windows=n_windows,
+    )
 
     print(f"Sweeping HOMC orders {ORDER_GRID[0]}..{ORDER_GRID[-1]} on {n_windows} random windows")
     print()
@@ -176,7 +187,12 @@ def main() -> None:
         end_i = start_i + six_months
         eval_window = prices.iloc[start_i:end_i]
         bh_eq = (eval_window["close"] / eval_window["close"].iloc[0]) * 10_000.0
-        m_bh = compute_metrics(bh_eq, [])
+        m_bh = compute_metrics(
+            bh_eq,
+            [],
+            risk_free_rate=historical_usd_rate("2018-2024"),
+            periods_per_year=252.0,
+        )
         bh_sharpes.append(m_bh.sharpe)
         bh_cagrs.append(m_bh.cagr)
     bh_median_sharpe = float(np.median(bh_sharpes))

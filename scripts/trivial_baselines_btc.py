@@ -44,6 +44,7 @@ import pandas as pd
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
 from signals.backtest.portfolio import Portfolio
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -154,7 +155,12 @@ def _run_engine_strategy_on_window(
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
-    return compute_metrics(eq_rebased, [])
+    return compute_metrics(
+        eq_rebased,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=365.0,
+    )
 
 
 def _run_vol_filter_only(
@@ -252,7 +258,12 @@ def _run_vol_filter_only(
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * initial_cash
-    return compute_metrics(eq_rebased, [])
+    return compute_metrics(
+        eq_rebased,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=365.0,
+    )
 
 
 def _evaluate() -> pd.DataFrame:
@@ -292,7 +303,12 @@ def _evaluate() -> pd.DataFrame:
 
         # Buy & hold: constant long, rebased to 10k.
         bh_eq = (eval_window["close"] / eval_window["close"].iloc[0]) * 10_000.0
-        m_bh = compute_metrics(bh_eq, [])
+        m_bh = compute_metrics(
+            bh_eq,
+            [],
+            risk_free_rate=historical_usd_rate("2018-2024"),
+            periods_per_year=365.0,
+        )
 
         # Engine-based strategies.
         strat_metrics: dict[str, Metrics] = {}

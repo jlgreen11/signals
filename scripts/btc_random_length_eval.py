@@ -31,6 +31,7 @@ import pandas as pd
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -67,7 +68,12 @@ def _run_on_window(
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
     eval_trades = [t for t in result.trades if t.ts >= eval_start_ts]
-    return compute_metrics(eq_rebased, eval_trades)
+    return compute_metrics(
+        eq_rebased,
+        eval_trades,
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=365.0,
+    )
 
 
 def _baseline_cfg() -> BacktestConfig:

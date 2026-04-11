@@ -23,21 +23,21 @@ Regime ablation aggregate — BTC-USD — 16 random 6-month windows, seed 42
 ================================================================================
 variant             median Sh    mean Sh   median CAGR    mean MDD
 --------------------------------------------------------------------------------
-full                    +0.81      +1.17        +38.7%      -23.9%
-composite_only          +1.03      +1.00        +77.2%      -27.8%
-homc_only               +0.91      +0.88        +36.2%      -19.0%
-both_constants          +0.95      +0.83        +60.0%      -24.0%
+full                    +0.92      +1.36        +38.7%      -23.9%
+composite_only          +1.20      +1.17        +77.2%      -27.8%
+homc_only               +1.03      +1.00        +36.2%      -19.0%
+both_constants          +1.11      +0.95        +60.0%      -24.0%
 
 ================================================================================
 Interpretation (SKEPTIC_REVIEW.md Tier C4)
 ================================================================================
-  full hybrid median Sharpe        : +0.81
-  composite_only (HOMC ablated)    : +1.03  (Δ vs full: +0.22)
-  homc_only (composite ablated)    : +0.91  (Δ vs full: +0.10)
-  both_constants (pure vol filter) : +0.95  (Δ vs full: +0.14)
+  full hybrid median Sharpe        : +0.92
+  composite_only (HOMC ablated)    : +1.20  (Δ vs full: +0.28)
+  homc_only (composite ablated)    : +1.03  (Δ vs full: +0.12)
+  both_constants (pure vol filter) : +1.11  (Δ vs full: +0.19)
 
-  HOMC branch IS DECORATIVE: replacing it with a constant loses only -0.22 Sharpe — within noise.
-  Composite branch IS DECORATIVE: replacing it with a constant loses only -0.10 Sharpe — within noise.
+  HOMC branch IS DECORATIVE: replacing it with a constant loses only -0.28 Sharpe — within noise.
+  Composite branch IS DECORATIVE: replacing it with a constant loses only -0.12 Sharpe — within noise.
 
   BOTH components together are decorative: the pure vol filter
   baseline (both_constants) matches the full hybrid within

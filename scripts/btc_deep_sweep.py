@@ -48,7 +48,6 @@ Outputs:
 
 from __future__ import annotations
 
-import random
 import time
 from dataclasses import dataclass, field
 from itertools import product
@@ -57,9 +56,11 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from _window_sampler import draw_non_overlapping_starts
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -102,7 +103,12 @@ def _run_on_window(
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
-    return compute_metrics(eq_rebased, [])
+    return compute_metrics(
+        eq_rebased,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=365.0,
+    )
 
 
 # ============================================================================
@@ -315,8 +321,13 @@ def main() -> None:
     # results are directly comparable.
     min_start = 1000 + VOL_WINDOW + WARMUP_PAD
     max_start = len(prices) - SIX_MONTHS - 1
-    rng = random.Random(SEED)
-    starts = sorted(rng.sample(range(min_start, max_start), N_WINDOWS))
+    starts = draw_non_overlapping_starts(
+        seed=SEED,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=SIX_MONTHS,
+        n_windows=N_WINDOWS,
+    )
 
     # Build all dimensions
     dimensions = [

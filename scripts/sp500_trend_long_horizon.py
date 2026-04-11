@@ -26,15 +26,16 @@ scripts/data/sp500_trend_long_horizon.parquet.
 
 from __future__ import annotations
 
-import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
+from _window_sampler import draw_non_overlapping_starts
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -99,7 +100,12 @@ def _run_on_window(
     eq = result.equity_curve.loc[result.equity_curve.index >= eval_start_ts]
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
-    return compute_metrics((eq / eq.iloc[0]) * cfg.initial_cash, [])
+    return compute_metrics(
+        (eq / eq.iloc[0]) * cfg.initial_cash,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=252.0,
+    )
 
 
 def main() -> None:
@@ -120,8 +126,13 @@ def main() -> None:
     rows: list[dict] = []
     overall_t0 = time.time()
     for seed in SEEDS:
-        rng = random.Random(seed)
-        starts = sorted(rng.sample(range(min_start, max_start), N_WINDOWS))
+        starts = draw_non_overlapping_starts(
+            seed=seed,
+            min_start=min_start,
+            max_start=max_start,
+            window_len=TWO_YEARS,
+            n_windows=N_WINDOWS,
+        )
         print(f"\n=== seed {seed} — {len(starts)} windows ===")
         for win_idx, start_i in enumerate(starts):
             end_i = start_i + TWO_YEARS
@@ -138,7 +149,12 @@ def main() -> None:
 
             # Buy & hold baseline
             bh_eq = (eval_window["close"] / eval_window["close"].iloc[0]) * 10_000.0
-            m_bh = compute_metrics(bh_eq, [])
+            m_bh = compute_metrics(
+                bh_eq,
+                [],
+                risk_free_rate=historical_usd_rate("2018-2024"),
+                periods_per_year=252.0,
+            )
 
             row = {
                 "seed": seed,

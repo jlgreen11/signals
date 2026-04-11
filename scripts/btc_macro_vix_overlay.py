@@ -22,14 +22,15 @@ Saves per-window results to scripts/data/btc_macro_vix_overlay.parquet.
 
 from __future__ import annotations
 
-import random
 import time
 from pathlib import Path
 
 import pandas as pd
+from _window_sampler import draw_non_overlapping_starts
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -121,7 +122,12 @@ def _run_window(
         empty = compute_metrics(pd.Series(dtype=float), [])
         return empty, empty
     btc_eq = (btc_eq / btc_eq.iloc[0]) * 10_000.0
-    baseline_metrics = compute_metrics(btc_eq, [])
+    baseline_metrics = compute_metrics(
+        btc_eq,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=365.0,
+    )
 
     # Compute VIX threshold from the TRAINING window (no lookahead)
     training_end_ts = btc_prices.index[start_i - 1]
@@ -136,7 +142,12 @@ def _run_window(
     # Apply the overlay
     vix_series = vix_prices["close"]
     overlay_eq = _apply_vix_overlay(btc_eq, vix_series, eval_start_ts, vix_threshold)
-    overlay_metrics = compute_metrics(overlay_eq, [])
+    overlay_metrics = compute_metrics(
+        overlay_eq,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=365.0,
+    )
 
     return baseline_metrics, overlay_metrics
 
@@ -155,8 +166,13 @@ def main() -> None:
     rows: list[dict] = []
     t0 = time.time()
     for seed in SEEDS:
-        rng = random.Random(seed)
-        starts = sorted(rng.sample(range(min_start, max_start), N_WINDOWS))
+        starts = draw_non_overlapping_starts(
+            seed=seed,
+            min_start=min_start,
+            max_start=max_start,
+            window_len=SIX_MONTHS,
+            n_windows=N_WINDOWS,
+        )
         for win_idx, start_i in enumerate(starts):
             end_i = start_i + SIX_MONTHS
             baseline, overlay = _run_window(btc_prices, vix_prices, start_i, end_i)

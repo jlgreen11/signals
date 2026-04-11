@@ -22,14 +22,15 @@ right validation methodology here because:
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from _window_sampler import draw_non_overlapping_starts
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -78,7 +79,12 @@ def _run_on_window(
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
-    return compute_metrics(eq_rebased, [])
+    return compute_metrics(
+        eq_rebased,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=365.0,
+    )
 
 
 def _sweep_symbol(
@@ -104,8 +110,13 @@ def _sweep_symbol(
     min_start = homc_train_window + vol_window + warmup_pad
     max_start = len(prices) - six_months - 1
 
-    rng = random.Random(seed)
-    starts = sorted(rng.sample(range(min_start, max_start), n_windows))
+    starts = draw_non_overlapping_starts(
+        seed=seed,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=six_months,
+        n_windows=n_windows,
+    )
 
     rows: list[SweepRow] = []
     for q in QUANTILE_GRID:

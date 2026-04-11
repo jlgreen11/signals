@@ -30,13 +30,14 @@ matching the existing random_window_eval methodology.
 
 from __future__ import annotations
 
-import random
 from pathlib import Path
 
 import pandas as pd
+from _window_sampler import draw_non_overlapping_starts
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import compute_metrics
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -191,8 +192,13 @@ def main() -> None:
 
     min_start = homc_train_window + vol_window + warmup_pad
     max_start = len(btc_prices) - six_months - 1
-    rng = random.Random(seed)
-    starts = sorted(rng.sample(range(min_start, max_start), n_windows))
+    starts = draw_non_overlapping_starts(
+        seed=seed,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=six_months,
+        n_windows=n_windows,
+    )
 
     print(f"Running {n_windows} random windows × {len(WEIGHT_GRID)} weights × 2 rebalance modes")
     print()
@@ -215,15 +221,30 @@ def main() -> None:
             continue
 
         # Per-component metrics for reference
-        btc_metrics = compute_metrics(btc_eq, [])
-        sp_metrics = compute_metrics(sp_eq, [])
+        btc_metrics = compute_metrics(
+            btc_eq,
+            [],
+            risk_free_rate=historical_usd_rate("2018-2024"),
+            periods_per_year=365.0,
+        )
+        sp_metrics = compute_metrics(
+            sp_eq,
+            [],
+            risk_free_rate=historical_usd_rate("2018-2024"),
+            periods_per_year=252.0,
+        )
 
         for w_btc, w_sp in WEIGHT_GRID:
             for rebalance in ("window", "daily"):
                 port_eq = _combine_portfolio(btc_eq, sp_eq, w_btc, w_sp, rebalance)
                 if port_eq.empty:
                     continue
-                m = compute_metrics(port_eq, [])
+                m = compute_metrics(
+                    port_eq,
+                    [],
+                    risk_free_rate=historical_usd_rate("2018-2024"),
+                    periods_per_year=252.0,
+                )
                 rows.append({
                     "rebalance": rebalance,
                     "btc_weight": w_btc,

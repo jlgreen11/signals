@@ -6,15 +6,16 @@ Compares against the H-Vol @ q=0.70 production baseline.
 
 from __future__ import annotations
 
-import random
 import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from _window_sampler import draw_non_overlapping_starts
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -49,7 +50,12 @@ def _run_on_window(
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
     eval_trades = [t for t in result.trades if t.ts >= eval_start_ts]
-    return compute_metrics(eq_rebased, eval_trades)
+    return compute_metrics(
+        eq_rebased,
+        eval_trades,
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=365.0,
+    )
 
 
 def _baseline_cfg() -> BacktestConfig:
@@ -100,8 +106,13 @@ def main() -> None:
     t0 = time.time()
     for name, cfg in configs.items():
         for seed in SEEDS:
-            rng = random.Random(seed)
-            starts = sorted(rng.sample(range(min_start, max_start), N_WINDOWS))
+            starts = draw_non_overlapping_starts(
+                seed=seed,
+                min_start=min_start,
+                max_start=max_start,
+                window_len=SIX_MONTHS,
+                n_windows=N_WINDOWS,
+            )
             sharpes: list[float] = []
             for win_idx, start_i in enumerate(starts):
                 end_i = start_i + SIX_MONTHS

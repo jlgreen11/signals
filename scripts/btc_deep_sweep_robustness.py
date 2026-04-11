@@ -40,16 +40,17 @@ scripts/data/btc_deep_sweep_robustness.parquet.
 
 from __future__ import annotations
 
-import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from _window_sampler import draw_non_overlapping_starts
 
 from signals.backtest.engine import BacktestConfig, BacktestEngine
 from signals.backtest.metrics import Metrics, compute_metrics
+from signals.backtest.risk_free import historical_usd_rate
 from signals.config import SETTINGS
 from signals.data.storage import DataStore
 
@@ -136,14 +137,24 @@ def _run_on_window(
     if eq.empty or eq.iloc[0] <= 0:
         return compute_metrics(pd.Series(dtype=float), [])
     eq_rebased = (eq / eq.iloc[0]) * cfg.initial_cash
-    return compute_metrics(eq_rebased, [])
+    return compute_metrics(
+        eq_rebased,
+        [],
+        risk_free_rate=historical_usd_rate("2018-2024"),
+        periods_per_year=365.0,
+    )
 
 
 def _window_starts_for_seed(prices: pd.DataFrame, seed: int) -> list[int]:
     min_start = TRAIN_WINDOW + VOL_WINDOW + WARMUP_PAD
     max_start = len(prices) - SIX_MONTHS - 1
-    rng = random.Random(seed)
-    return sorted(rng.sample(range(min_start, max_start), N_WINDOWS))
+    return draw_non_overlapping_starts(
+        seed=seed,
+        min_start=min_start,
+        max_start=max_start,
+        window_len=SIX_MONTHS,
+        n_windows=N_WINDOWS,
+    )
 
 
 def _run_strategy_sweep(
@@ -265,7 +276,12 @@ def _run_portfolio_sweep(
                 sp_rets = sp_reindexed.pct_change().fillna(0)
                 port_rets = w_btc * btc_rets + w_sp * sp_rets
                 port_eq = (1.0 + port_rets).cumprod() * 10_000.0
-                m = compute_metrics(port_eq, [])
+                m = compute_metrics(
+                    port_eq,
+                    [],
+                    risk_free_rate=historical_usd_rate("2018-2024"),
+                    periods_per_year=252.0,
+                )
 
                 rows.append({
                     "kind": "portfolio",
