@@ -97,17 +97,40 @@ def build_daily_activity_frame(
         if col in px.columns:
             activity[col] = px[col].reindex(activity.index)
 
-    # Attach signals (state, signal, target_position) aligned to the bar
-    # the signal was *generated* on (bar t). The action happens at t+1's
-    # open, but we log it on the decision bar so the user can see the
-    # driving feature values in context.
+    # Attach signals, shifted by one bar to align with the action they
+    # cause. Engine timing convention is strict no-lookahead:
+    #
+    #   decision at bar t  →  trade at bar t+1's open  →  equity mark at t+1
+    #
+    # So on the activity row for bar t+1, the `signal` column must show
+    # the decision made at bar t (the decision that caused this row's
+    # action), not the new decision made at bar t+1 (which will cause
+    # next bar's action). Without this shift, the Excel looks confusing:
+    # rows show signal=HOLD alongside action=BUY because the BUY was
+    # caused by yesterday's BUY decision while today's decision is HOLD.
+    #
+    # `next_signal` preserves the "decision made on this bar" info for
+    # users who want to see what the model thinks *now* — it's just not
+    # the column that explains this row's action.
     sig = result.signals.copy()
     if not sig.empty:
         sig.index = _naive(pd.DatetimeIndex(sig.index))
+        # Reindex to activity timeline, then shift forward by one bar.
+        # The first activity row ends up with NaN (its action was caused
+        # by a warmup-period decision outside the eval window), and the
+        # last activity row shows the final pre-flatten decision.
+        sig_on_activity = sig.reindex(activity.index)
+        sig_aligned = sig_on_activity.shift(1)
         for col in ("signal", "state", "state_label", "confidence",
                     "expected_return", "target_position"):
-            if col in sig.columns:
-                activity[col] = sig[col].reindex(activity.index)
+            if col in sig_aligned.columns:
+                activity[col] = sig_aligned[col]
+        # Also expose the "decision made on this bar" (no shift) for
+        # users who want to see what the model is saying *right now*.
+        if "signal" in sig_on_activity.columns:
+            activity["next_signal"] = sig_on_activity["signal"]
+        if "target_position" in sig_on_activity.columns:
+            activity["next_target_position"] = sig_on_activity["target_position"]
 
     # Reconstruct per-bar position and cash from the trade log.
     # This is independent of the Portfolio's internal state; we replay
@@ -203,13 +226,21 @@ def build_daily_activity_frame(
     running_max = activity["equity"].cummax()
     activity["drawdown_pct"] = (activity["equity"] / running_max - 1.0) * 100.0
 
-    # Reorder columns for readability.
+    # Reorder columns for readability. `signal` and `target_position`
+    # are the (shifted) decision that CAUSED today's action, so they
+    # sit right next to `action` for visual alignment. `next_signal`
+    # and `next_target_position` are the decision made ON this bar
+    # (driving tomorrow's action); they live at the end so users
+    # who care about "what does the model think right now" can still
+    # see them without clutter.
     ordered = [
         "open", "high", "low", "close", "volume",
-        "state", "signal", "confidence", "expected_return", "target_position",
-        "action", "units_held", "cash", "equity",
+        "state", "confidence", "expected_return",
+        "signal", "target_position", "action",
+        "units_held", "cash", "equity",
         "daily_return_pct", "cumulative_return_pct", "drawdown_pct",
         "cumulative_buys", "cumulative_sells",
+        "next_signal", "next_target_position",
     ]
     present = [c for c in ordered if c in activity.columns]
     activity = activity[present]
@@ -254,6 +285,15 @@ def build_summary_frame(
         rows.append(("---", "---"))
         for k, v in extra.items():
             rows.append((k, str(v)))
+    # Timing convention note — explains the meaning of `signal` vs
+    # `next_signal` in the Daily Activity sheet for any user who opens
+    # the workbook without the surrounding context.
+    rows.append(("---", "---"))
+    rows.append((
+        "Timing convention",
+        "signal = decision that caused today's action (yesterday's decision). "
+        "next_signal = decision made today, will cause tomorrow's action.",
+    ))
     return pd.DataFrame(rows, columns=["metric", "value"])
 
 
