@@ -1,0 +1,84 @@
+BTC-USD: train=2922 bars, full=3653 bars
+Pre-registered grid: 16 configs
+
+[1/16] rule_k10_p0.60_o3_s5
+  avg Sharpe: +0.321 ± 0.209  (min -0.583, max +1.101)  avg_trades=1.8  elapsed 10s
+
+[2/16] rule_k10_p0.60_o3_s7
+  avg Sharpe: +0.567 ± 0.072  (min +0.426, max +0.927)  avg_trades=1.1  elapsed 22s
+
+[3/16] rule_k10_p0.60_o5_s5
+  avg Sharpe: +0.042 ± 0.014  (min +0.000, max +0.110)  avg_trades=0.7  elapsed 35s
+
+[4/16] rule_k10_p0.60_o5_s7
+  avg Sharpe: +0.000 ± 0.000  (min +0.000, max +0.000)  avg_trades=0.1  elapsed 50s
+
+[5/16] rule_k10_p0.70_o3_s5
+  avg Sharpe: +0.352 ± 0.172  (min -0.338, max +0.971)  avg_trades=1.1  elapsed 60s
+
+[6/16] rule_k10_p0.70_o3_s7
+  avg Sharpe: +0.227 ± 0.074  (min +0.000, max +0.710)  avg_trades=0.7  elapsed 72s
+
+[7/16] rule_k10_p0.70_o5_s5
+  avg Sharpe: +0.042 ± 0.014  (min +0.000, max +0.110)  avg_trades=0.7  elapsed 86s
+
+[8/16] rule_k10_p0.70_o5_s7
+  avg Sharpe: +0.000 ± 0.000  (min +0.000, max +0.000)  avg_trades=0.0  elapsed 101s
+
+[9/16] rule_k20_p0.60_o3_s5
+  avg Sharpe: +0.197 ± 0.193  (min -0.887, max +0.893)  avg_trades=2.5  elapsed 112s
+
+[10/16] rule_k20_p0.60_o3_s7
+  avg Sharpe: +0.214 ± 0.085  (min -0.063, max +0.788)  avg_trades=1.6  elapsed 123s
+
+[11/16] rule_k20_p0.60_o5_s5
+  avg Sharpe: +0.285 ± 0.059  (min +0.088, max +0.625)  avg_trades=0.9  elapsed 137s
+
+[12/16] rule_k20_p0.60_o5_s7
+  avg Sharpe: +0.000 ± 0.000  (min +0.000, max +0.000)  avg_trades=0.1  elapsed 151s
+
+[13/16] rule_k20_p0.70_o3_s5
+  avg Sharpe: +0.339 ± 0.176  (min -0.338, max +0.971)  avg_trades=1.1  elapsed 161s
+
+[14/16] rule_k20_p0.70_o3_s7
+  avg Sharpe: +0.070 ± 0.128  (min -0.424, max +0.946)  avg_trades=0.9  elapsed 172s
+
+[15/16] rule_k20_p0.70_o5_s5
+  avg Sharpe: +0.151 ± 0.027  (min +0.088, max +0.307)  avg_trades=0.7  elapsed 186s
+
+[16/16] rule_k20_p0.70_o5_s7
+  avg Sharpe: +0.000 ± 0.000  (min +0.000, max +0.000)  avg_trades=0.0  elapsed 200s
+
+[wrote] /Users/jlg/claude/signals/scripts/data/rule_based_eval.parquet  (1600 rows)
+
+================================================================================
+In-sample ranking
+================================================================================
+               label  top_k  p_threshold  order  n_states     mean      sem       min      max
+rule_k10_p0.60_o3_s7     10          0.6      3         7 0.566728 0.071611  0.426334 0.927121
+rule_k10_p0.70_o3_s5     10          0.7      3         5 0.351797 0.171549 -0.337953 0.971329
+rule_k20_p0.70_o3_s5     20          0.7      3         5 0.339113 0.176499 -0.337953 0.971329
+rule_k10_p0.60_o3_s5     10          0.6      3         5 0.320794 0.209461 -0.582816 1.100960
+rule_k20_p0.60_o5_s5     20          0.6      5         5 0.285345 0.058843  0.088114 0.624826
+rule_k10_p0.70_o3_s7     10          0.7      3         7 0.226917 0.073897  0.000000 0.709634
+rule_k20_p0.60_o3_s7     20          0.6      3         7 0.214243 0.084715 -0.062851 0.787673
+rule_k20_p0.60_o3_s5     20          0.6      3         5 0.196504 0.193244 -0.887202 0.892661
+rule_k20_p0.70_o5_s5     20          0.7      5         5 0.151198 0.026807  0.088114 0.306944
+rule_k20_p0.70_o3_s7     20          0.7      3         7 0.070141 0.128020 -0.423934 0.946496
+rule_k10_p0.60_o5_s5     10          0.6      5         5 0.041848 0.014482  0.000000 0.110121
+rule_k10_p0.70_o5_s5     10          0.7      5         5 0.041848 0.014482  0.000000 0.110121
+rule_k10_p0.60_o5_s7     10          0.6      5         7 0.000000 0.000000  0.000000 0.000000
+rule_k10_p0.70_o5_s7     10          0.7      5         7 0.000000 0.000000  0.000000 0.000000
+rule_k20_p0.60_o5_s7     20          0.6      5         7 0.000000 0.000000  0.000000 0.000000
+rule_k20_p0.70_o5_s7     20          0.7      5         7 0.000000 0.000000  0.000000 0.000000
+
+Winner: rule_k10_p0.60_o3_s7  avg Sharpe +0.567
+Holdout Sharpe: +0.618  CAGR +18.9%  MDD -21.2%  trades 2
+
+================================================================================
+Verdict
+================================================================================
+  In-sample (≥ 1.30): FAIL  (+0.567)
+  Holdout (> 0):                PASS  (+0.618)
+  Overall: FAILURE
+[wrote] /Users/jlg/claude/signals/scripts/RULE_BASED_RESULTS.md
