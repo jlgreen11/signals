@@ -4,6 +4,67 @@ Live tracking of what's landed from the skeptic review punch list. Updated
 as improvements merge. Reference the tier numbers against `SKEPTIC_REVIEW.md`
 for the original critique.
 
+## Round 5/6 — 2026-04-11 night — broad comparison + residual corrections
+
+After Round 5's auto-improve sweep (fixed annualization in 20 scripts
+and samplers in 15 scripts), ran `scripts/broad_comparison.py` to
+aggregate every strategy the project has ever evaluated into one table.
+Two additional corrections surfaced:
+
+### Correction A — single-seed vs multi-seed pure-vol-filter discrepancy
+
+The pure volatility filter measured in `trivial_baselines_btc.parquet`
+(single seed=42) posts median Sharpe **1.348** across 16 windows. The
+same strategy measured at 10 seeds × 16 windows in `confirm_winners.parquet`
+(strategy label `vf_vw14_q0.60_rf7`) posts **0.890 ± 0.102**. That's a
+**0.46 Sharpe gap** just from adding more seeds — the single-seed
+reading was at the high end of the seed distribution.
+
+Implication for the README's "Markov is decorative" narrative: under
+proper 10-seed evaluation, the pure vol filter (0.890) does NOT beat
+the BTC_HYBRID_PRODUCTION bundle (1.188). It's roughly tied with the
+LEGACY hybrid (hvol_q0.70_legacy at 0.893 ± 0.100, rf=21/tw=1000) but
+the Round-3 winning parameter bundle (q=0.50, rf=14, tw=750) beats
+the pure vol filter by **0.30 Sharpe** at multi-seed evaluation.
+
+So the narrative needs a nuance: the Markov components ARE decorative
+under the legacy parameter defaults, but under the Round-3 production
+bundle the hybrid genuinely outperforms the pure vol filter. The edge
+is not in the chain's state transitions — it's in the interaction
+between the vol quantile, the retrain frequency, and the training
+window size. Either way, the pure vol filter is not a ship-worthy
+alternative — you want the parameter-tuned hybrid or the 4-asset
+basket.
+
+**Logged but not acted on**: the `trivial_baselines_btc.py` script is
+still single-seed by design. Adding a multi-seed version would be a
+future round's work.
+
+### Correction B — `btc_detailed_backtest.py` was missed in Round 5
+
+The Round-5 BTC-only annualization sweep covered 14 scripts but
+`btc_detailed_backtest.py` wasn't in the list. Its two compute_metrics
+calls (one for the strategy, one for the B&H benchmark) were still
+relying on the legacy 252/yr index-inference default, which
+under-annualizes BTC Sharpe by `sqrt(252/365) ≈ 0.831`. Fixed in
+commit after `603b96c`.
+
+### What's still pending
+
+Nothing load-bearing. Everything that affects the production
+recommendation is annualization-correct. The remaining items are:
+
+- Multi-seed version of `trivial_baselines_btc.py` (currently N=1)
+- Multi-seed version of `regime_ablation.py` (currently N=1)
+- Re-run `cost_sensitivity.py` under the new annualization (the
+  verdict doesn't change — deadband is still inert, cost impact is
+  still linear — but the absolute Sharpe numbers are off by
+  `sqrt(365/252)`)
+- Any forward paper-trade log (still physically requires 30 days of
+  clock time)
+
+---
+
 ## Round 4 — 2026-04-11 night — Markov sunset + 4 improvements
 
 ### Markov closure

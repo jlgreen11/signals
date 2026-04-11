@@ -160,8 +160,14 @@ def main() -> None:
     from signals.backtest.engine import BacktestResult
     from signals.backtest.metrics import compute_metrics
 
+    # BTC trades 365 days/year — pass explicit periods_per_year to
+    # avoid the legacy index-inference defaulting to 252 for daily bars.
+    # See SKEPTIC_REVIEW.md § 8a / Round-5 audit.
     new_metrics = compute_metrics(
-        rebased, eval_trades, risk_free_rate=cfg.risk_free_rate
+        rebased,
+        eval_trades,
+        risk_free_rate=cfg.risk_free_rate,
+        periods_per_year=365.0,
     )
     # Benchmark = B&H on the eval window, same initial cash
     bench_window = engine_input.loc[engine_input.index >= eval_start_ts, "close"]
@@ -169,7 +175,12 @@ def main() -> None:
         bench = (bench_window / float(bench_window.iloc[0])) * cfg.initial_cash
     else:
         bench = pd.Series(dtype=float)
-    new_bench_metrics = compute_metrics(bench, [], risk_free_rate=cfg.risk_free_rate)
+    new_bench_metrics = compute_metrics(
+        bench,
+        [],
+        risk_free_rate=cfg.risk_free_rate,
+        periods_per_year=365.0,
+    )
 
     # Pass the FULL trade list (not eval_trades) to the trimmed result so
     # the Excel exporter can replay warmup trades and establish the
