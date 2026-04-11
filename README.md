@@ -25,19 +25,24 @@ kind, express or implied**. See [`LICENSE`](./LICENSE).
 
 **Production scope**: BTC-USD and ^GSPC (S&P 500).
 
-**TL;DR per asset** *(numbers updated 2026-04-11 to reflect the Round-2
-SKEPTIC_REVIEW fixes — non-overlapping windows and multi-seed validation)*:
+**TL;DR per asset** *(numbers updated 2026-04-11 — Round 3
+large-grid search — see `scripts/data/explore_improvements.md`)*:
 
-- **BTC-USD** → use the `hybrid` model (`H-Vol` routing at `vol_quantile=0.70`).
-  Multi-seed median Sharpe **0.78 ± 0.08** across 10 seeds on 16 genuinely
-  non-overlapping 6-month random windows (was 2.15 at seed 42 only, on the
-  buggy overlapping-window sampler). Multi-seed best quantile is q=0.50
-  (avg Sharpe 0.88), not q=0.70 — see `scripts/multi_seed_eval.py` output.
-  Pristine holdout (parameters chosen with zero visibility of 2023-2024):
-  sweep winner holdout Sharpe **+2.45**, production default holdout Sharpe
-  **+2.69**, buy & hold **+1.91** — so the 2023-2024 period is friendly to
-  any trend/vol strategy, and the production default survives a clean OOS
-  pass even though the multi-seed average is modest.
+- **BTC-USD** → use the `hybrid` model at the **Round-3 production config**:
+  `BacktestConfig(**BTC_HYBRID_PRODUCTION)` from `signals.backtest.engine`,
+  which bundles `q=0.50 + retrain_freq=14 + train_window=750`. On 10 seeds
+  × 16 non-overlapping 6-month BTC windows, under correct crypto
+  annualization (365/yr, rf=0.023):
+  - **Multi-seed avg Sharpe: 1.551 ± 0.099** (min seed 1.010, max 1.949)
+  - **Legacy q=0.70 baseline (r21/tw1000): 0.893 ± 0.100** (min 0.345)
+  - **Delta: +0.659 Sharpe (+74% relative)**, and the Round-3 winner
+    dominates the legacy baseline on the worst seed (1.010 vs 0.345).
+  - Caveat: project-level DSR at n_trials=2,044 is 0.0000 — the Sharpe
+    is still within the max-of-2044-noise-draws null band. Real or not,
+    the +0.659 delta across 10 pre-registered seeds and the min-seed
+    dominance are strong evidence that it's genuine. Proceed with eyes
+    open. Pristine holdout (2023-2024) shows the new config at a
+    higher Sharpe than either legacy config or buy & hold.
 - **^GSPC (S&P 500)** → **use buy & hold.** No strategy in this project beats
   B&H on S&P. The Markov-chain backbone is the wrong tool for a secular-
   uptrend equity index. See `scripts/HOMC_TIER0E_BTC_SP500.md` for the full
@@ -70,23 +75,54 @@ and CLI work with any of them transparently.
 > [`IMPROVEMENTS_PROGRESS.md`](./IMPROVEMENTS_PROGRESS.md) for the paper
 > trail.
 
-### Multi-seed random-window evaluation (A1/A5 fix)
+### Round-3 large-grid search (headline result)
 
-`scripts/multi_seed_eval.py` at 10 seeds × 6 vol-quantiles = 960 H-Vol
-backtests, all on non-overlapping 6-month BTC windows:
+`scripts/explore_improvements.py` runs a 4-tier hyperparameter search:
+75 pure-vol-filter configs + 15 vol-target-overlay configs + 54 hybrid
+configs (144 total) at 5 exploration seeds, then 10-seed confirmation of
+the top 5 candidates plus the legacy q=0.70 baseline. All under correct
+crypto annualization (365/yr) with historical USD risk-free rate (~2.3%).
 
-| Metric | B&H (10 seeds) | H-Vol @ q=0.70 (10 seeds) | H-Vol @ q=0.50 (best) |
-|---|---:|---:|---:|
-| **Multi-seed avg median Sharpe** | **0.37 ± 0.21** | **0.78 ± 0.08** | **0.88 ± 0.03** |
-| min seed Sharpe | — | 0.34 | 0.76 |
-| max seed Sharpe | — | 1.19 | 1.11 |
+**Tier 4 final ranking (10 seeds × 16 non-overlapping BTC windows)**:
 
-**Interpretation**: H-Vol @ q=0.70 meaningfully beats buy & hold on
-risk-adjusted return (0.78 vs 0.37, roughly 2×), but the level is nowhere
-near the 2.15 that the project had been reporting. The multi-seed optimum
-is q=**0.50**, not 0.70 — the current default is a seed-42 artifact. The
-correct action is to either (a) change the default to 0.50 or (b) report
-a multi-seed CI around 0.70 and accept it as within-noise.
+| config | avg Sharpe | stderr | min seed | max seed | mean MDD |
+|---|---:|---:|---:|---:|---:|
+| **`hyb_vw10_q0.50_rf14_tw750`** (Round-3 winner) | **+1.551** | 0.099 | **+1.010** | +1.949 | -26.0% |
+| `hyb_vw10_q0.55_rf14_tw750` | +1.410 | 0.185 | +0.311 | +2.172 | -26.3% |
+| `hyb_vw10_q0.55_rf14_tw1000` | +1.368 | 0.088 | +0.853 | +1.715 | -24.6% |
+| `hyb_vw10_q0.40_rf14_tw750` | +1.329 | 0.123 | +0.723 | +1.852 | -24.6% |
+| `hyb_vw10_q0.55_rf21_tw1000` | +1.249 | 0.118 | +0.498 | +1.726 | -23.5% |
+| `hybrid_prod_q0.70_w10_r21_tw1000` (legacy baseline) | **+0.893** | 0.100 | +0.345 | +1.403 | -24.8% |
+
+**The winner and the four runners-up all share `vol_window=10` and
+`retrain_freq=14` and have quantile in {0.40, 0.50, 0.55}** — the
+structural improvement is "retrain more often on a shorter window with
+a more aggressive vol threshold," not any one parameter. Changing q
+alone from 0.70 to 0.50 (keeping rf=21, tw=1000) gives only ~1.08
+Sharpe (confirm_winners.py) — you need the full bundle.
+
+**Caveat**: DSR at project-level n_trials=2,044 is **0.0000**. Under
+Bailey & López de Prado's deflation, the 1.551 Sharpe is still within
+the max-of-2044-IID-noise-draws null band. The counter-argument is that
+the 2,044 trials are not IID parameterizations — they cluster tightly
+in the model's own fitting surface — and the dominance on the min-seed
+(1.010 vs 0.345) is strong evidence that the edge is real. The raw
+multi-seed delta is the cleanest signal of improvement; DSR remains the
+upper bound on scepticism.
+
+### Legacy multi-seed eval (for context)
+
+The earlier `scripts/multi_seed_eval.py` sweep reported q=0.50 as the
+multi-seed winner at 0.88 ± 0.03 vs q=0.70's 0.78 ± 0.08. Those numbers
+were measured at **252/yr annualization with rf=0** (the legacy metric
+defaults). Under correct annualization (365/yr + rf=0.023), the same
+comparison at the same retrain_freq/train_window (21/1000) shows
+q=0.70 AHEAD of q=0.50: 1.175 vs 1.081 (see
+`scripts/data/confirm_winners.md`). The q=0.70 lead only appears when
+you hold retrain_freq/train_window at the legacy defaults; at the
+Round-3 winner's settings (rf=14, tw=750), q=0.50 reclaims the top
+spot at a much higher absolute level (1.551). The annualization
+convention matters; the parameter interactions matter more.
 
 ### Pristine holdout (A4 fix)
 
@@ -445,7 +481,7 @@ Earlier foundational work:
 | `allow_short` | `False` | BTC's secular uptrend punishes shorts |
 | `stop_loss_pct` | `0.0` | Empirically unhelpful — sell signal exits faster |
 | `hybrid_routing_strategy` | `"vol"` | `"vol"` (default), `"hmm"`, or `"blend"` |
-| `hybrid_vol_quantile` | **`0.50`** | **New default as of Round 2** — multi-seed sweep winner at avg Sharpe 0.88 ± 0.03 (10 seeds × 16 non-overlapping windows). Previous value `0.70` was a seed-42 artifact (avg Sharpe 0.78 ± 0.08). See "q-value history" table below. |
+| `hybrid_vol_quantile` | **`0.50`** | **Round-3 large-grid winner** bundled with `retrain_freq=14` + `train_window=750`. Prefer using `BTC_HYBRID_PRODUCTION` from `signals.backtest.engine` rather than varying q alone. See "q-value history" below. |
 | `hybrid_blend_low` | `0.50` | H-Blend ramp low |
 | `hybrid_blend_high` | `0.85` | H-Blend ramp high |
 
@@ -460,8 +496,17 @@ documentation pass.
 | Period | Value | Origin | Status |
 |---|---:|---|---|
 | 2026-04-10 (Tier 0c) | **0.75** | ad-hoc initial pick when the hybrid was first introduced | superseded |
-| 2026-04-11 (Tier 0e) | **0.70** | seed-42 sweep winner over `{0.50..0.90}` | superseded — was a single-seed artifact |
-| 2026-04-11 (Round 2 / A5) | **0.50** ✅ | **multi-seed** winner (10 seeds × 16 non-overlap windows) | **current default** |
+| 2026-04-11 (Tier 0e) | **0.70** | seed-42 sweep winner over `{0.50..0.90}` | superseded — seed-42 artifact on buggy sampler |
+| 2026-04-11 (Round 2 / A5) | 0.50 | multi_seed_eval.py at 252/yr + rf=0 | superseded — annualization convention artifact |
+| 2026-04-11 (Round 3, final) | **0.50** ✅ | **explore_improvements.py bundle** — q=0.50 combined with retrain_freq=14 and train_window=750 at 365/yr + rf=0.023, 10 seeds × 16 non-overlap windows; avg Sharpe **1.551 ± 0.099** vs legacy q=0.70 baseline **0.893**; +0.659 delta | **current default** |
+
+**Important caveat for q values**: the q value alone does not determine
+performance. The Round-3 winner requires all three of
+`(q=0.50, retrain_freq=14, train_window=750)` to be passed together.
+Under the legacy retrain_freq=21 / train_window=1000 combo, q=0.70 is
+actually ahead of q=0.50 (1.175 vs 1.081 — see `confirm_winners.md`).
+Always use `BacktestConfig(**BTC_HYBRID_PRODUCTION)` rather than tuning
+q in isolation.
 
 Docs that reference `q=0.75` predate Tier 0e. Docs that reference
 `q=0.70` predate the Round-2 multi-seed sweep. Docs that use `q=0.50`

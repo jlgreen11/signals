@@ -67,20 +67,28 @@ class BacktestConfig:
     hybrid_routing: dict[str, str] | None = None
     hybrid_routing_strategy: str = "vol"   # "hmm", "vol", "blend", or "adaptive_vol"
     # ------------------------------------------------------------------
-    # Historical q-value timeline (SKEPTIC_REVIEW.md / Tier A5)
+    # Historical q-value timeline (SKEPTIC_REVIEW.md / Tier A5 + Round 3)
     # ------------------------------------------------------------------
     # q=0.75 — original ad-hoc default (Tier 0c hybrid launch, 2026-04-10)
-    # q=0.70 — seed-42 sweep winner (Tier 0e, 2026-04-11)
-    # q=0.50 — MULTI-SEED winner at 10 seeds × 6 quantiles, avg median
-    #          Sharpe 0.88 ± 0.03 vs q=0.70's 0.78 ± 0.08. Set as the
-    #          new default 2026-04-11 late after scripts/multi_seed_eval.py
-    #          results landed. See scripts/data/multi_seed_eval.parquet
-    #          and IMPROVEMENTS_PROGRESS.md.
+    # q=0.70 — seed-42 sweep winner (Tier 0e, 2026-04-11). Also the
+    #          multi-seed winner when evaluated in isolation with
+    #          retrain_freq=21 and train_window=1000 held fixed
+    #          (confirm_winners.py, 1.175 ± 0.083).
+    # q=0.50 — Round-3 large-grid search winner (see
+    #          explore_improvements.py). When combined with
+    #          retrain_freq=14 and train_window=750, the hybrid
+    #          produces multi-seed avg Sharpe **1.551 ± 0.099**
+    #          across 10 seeds, min seed 1.010, max 1.949.
+    #          +0.659 Sharpe vs q=0.70 baseline. Dominates on
+    #          min-seed (1.010 vs 0.345). See BTC_HYBRID_PRODUCTION
+    #          constant below and scripts/data/explore_improvements.md.
+    #          NOTE: q=0.50 alone (with default retrain_freq=21 and
+    #          train_window=1000) only achieves 1.081 Sharpe. The
+    #          +0.659 edge requires all three parameters tuned together.
     # ------------------------------------------------------------------
-    # Every historical result doc in scripts/*.md still reports numbers
-    # that were measured at the q-value prevailing *at the time of that
-    # doc's run*. To read those numbers correctly, check each doc's
-    # header for its explicit "Test q=" annotation.
+    # Every historical result doc in scripts/*.md reports numbers
+    # measured at the q-value prevailing at the time of that doc's run.
+    # Check each doc's "Test parameters (historical)" header.
     hybrid_vol_quantile: float = 0.50
     hybrid_blend_low: float = 0.50         # blend ramp lower quantile
     hybrid_blend_high: float = 0.85        # blend ramp upper quantile
@@ -145,6 +153,38 @@ class BacktestConfig:
     vol_target_periods_per_year: int = 365  # BTC trades daily; use 252 for equities
     vol_target_max_scale: float = 2.0
     vol_target_min_scale: float = 0.0
+
+
+#: Round-3 large-grid search winner for BTC hybrid — the current "best
+#: known" configuration. Pass as `BacktestConfig(**BTC_HYBRID_PRODUCTION)`
+#: to get the 1.551 ± 0.099 Sharpe result from
+#: `scripts/data/explore_improvements.md` Tier 4. This dict intentionally
+#: does NOT become the field-level default because some params
+#: (retrain_freq, train_window) are shared across model types and the
+#: composite/HOMC models have different preferred values. The hybrid
+#: production config is a bundle; pass all three together.
+BTC_HYBRID_PRODUCTION: dict = {
+    "model_type": "hybrid",
+    "hybrid_routing_strategy": "vol",
+    "hybrid_vol_quantile": 0.50,
+    "retrain_freq": 14,
+    "train_window": 750,
+    "n_states": 5,
+    "order": 5,
+    "return_bins": 3,
+    "volatility_bins": 3,
+    "vol_window": 10,
+    "laplace_alpha": 0.01,
+    "buy_threshold_bps": 25.0,
+    "sell_threshold_bps": -35.0,
+    "target_scale_bps": 20.0,
+    "max_long": 1.0,
+    "allow_short": False,
+    "periods_per_year": 365.0,
+    # risk_free_rate should be passed explicitly from
+    # signals.backtest.risk_free.historical_usd_rate(window)
+    # based on the reporting window the caller cares about.
+}
 
 
 @dataclass

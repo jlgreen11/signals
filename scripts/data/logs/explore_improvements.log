@@ -158,3 +158,286 @@ TIER 3 — Hybrid wide grid (54 × 5 seeds)
     hybrid error: Not enough data (1131) for train_window=1500
     hybrid error: Not enough data (1257) for train_window=1500
     hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [10/54] hyb_vw5_q0.50_rf21_tw750  (elapsed 93s)
+  [11/54] hyb_vw5_q0.50_rf21_tw1000  (elapsed 103s)
+  [12/54] hyb_vw5_q0.50_rf21_tw1500  (elapsed 113s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [13/54] hyb_vw5_q0.55_rf14_tw750  (elapsed 122s)
+  [14/54] hyb_vw5_q0.55_rf14_tw1000  (elapsed 133s)
+  [15/54] hyb_vw5_q0.55_rf14_tw1500  (elapsed 144s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [16/54] hyb_vw5_q0.55_rf21_tw750  (elapsed 154s)
+  [17/54] hyb_vw5_q0.55_rf21_tw1000  (elapsed 165s)
+  [18/54] hyb_vw5_q0.55_rf21_tw1500  (elapsed 175s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [19/54] hyb_vw10_q0.40_rf14_tw750  (elapsed 184s)
+  [20/54] hyb_vw10_q0.40_rf14_tw1000  (elapsed 195s)
+  [21/54] hyb_vw10_q0.40_rf14_tw1500  (elapsed 206s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [22/54] hyb_vw10_q0.40_rf21_tw750  (elapsed 215s)
+  [23/54] hyb_vw10_q0.40_rf21_tw1000  (elapsed 225s)
+  [24/54] hyb_vw10_q0.40_rf21_tw1500  (elapsed 235s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [25/54] hyb_vw10_q0.50_rf14_tw750  (elapsed 244s)
+  [26/54] hyb_vw10_q0.50_rf14_tw1000  (elapsed 255s)
+  [27/54] hyb_vw10_q0.50_rf14_tw1500  (elapsed 266s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [28/54] hyb_vw10_q0.50_rf21_tw750  (elapsed 275s)
+  [29/54] hyb_vw10_q0.50_rf21_tw1000  (elapsed 285s)
+  [30/54] hyb_vw10_q0.50_rf21_tw1500  (elapsed 294s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [31/54] hyb_vw10_q0.55_rf14_tw750  (elapsed 303s)
+  [32/54] hyb_vw10_q0.55_rf14_tw1000  (elapsed 313s)
+  [33/54] hyb_vw10_q0.55_rf14_tw1500  (elapsed 324s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [34/54] hyb_vw10_q0.55_rf21_tw750  (elapsed 334s)
+  [35/54] hyb_vw10_q0.55_rf21_tw1000  (elapsed 343s)
+  [36/54] hyb_vw10_q0.55_rf21_tw1500  (elapsed 353s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [37/54] hyb_vw14_q0.40_rf14_tw750  (elapsed 361s)
+  [38/54] hyb_vw14_q0.40_rf14_tw1000  (elapsed 372s)
+  [39/54] hyb_vw14_q0.40_rf14_tw1500  (elapsed 383s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [40/54] hyb_vw14_q0.40_rf21_tw750  (elapsed 392s)
+  [41/54] hyb_vw14_q0.40_rf21_tw1000  (elapsed 402s)
+  [42/54] hyb_vw14_q0.40_rf21_tw1500  (elapsed 412s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [43/54] hyb_vw14_q0.50_rf14_tw750  (elapsed 421s)
+  [44/54] hyb_vw14_q0.50_rf14_tw1000  (elapsed 432s)
+  [45/54] hyb_vw14_q0.50_rf14_tw1500  (elapsed 444s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [46/54] hyb_vw14_q0.50_rf21_tw750  (elapsed 453s)
+  [47/54] hyb_vw14_q0.50_rf21_tw1000  (elapsed 463s)
+  [48/54] hyb_vw14_q0.50_rf21_tw1500  (elapsed 472s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [49/54] hyb_vw14_q0.55_rf14_tw750  (elapsed 481s)
+  [50/54] hyb_vw14_q0.55_rf14_tw1000  (elapsed 491s)
+  [51/54] hyb_vw14_q0.55_rf14_tw1500  (elapsed 502s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+  [52/54] hyb_vw14_q0.55_rf21_tw750  (elapsed 512s)
+  [53/54] hyb_vw14_q0.55_rf21_tw1000  (elapsed 522s)
+  [54/54] hyb_vw14_q0.55_rf21_tw1500  (elapsed 531s)
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+    hybrid error: Not enough data (1257) for train_window=1500
+    hybrid error: Not enough data (1383) for train_window=1500
+    hybrid error: Not enough data (1131) for train_window=1500
+
+Tier 3 top 5:
+                     label  avg_median_sharpe  stderr_median_sharpe
+ hyb_vw10_q0.50_rf14_tw750           1.433607              0.152413
+hyb_vw10_q0.55_rf14_tw1000           1.333044              0.157289
+ hyb_vw10_q0.40_rf14_tw750           1.212124              0.210923
+hyb_vw10_q0.55_rf21_tw1000           1.209735              0.208772
+ hyb_vw10_q0.55_rf14_tw750           1.165617              0.314422
+
+========================================================================
+TIER 4 — 10-seed confirmation (top-5 combined + baseline)
+========================================================================
+
+Top 5 candidates across all tiers:
+  hyb_vw10_q0.50_rf14_tw750: avg=1.434  min_seed=1.010
+  hyb_vw10_q0.55_rf14_tw1000: avg=1.333  min_seed=0.853
+  hyb_vw10_q0.40_rf14_tw750: avg=1.212  min_seed=0.723
+  hyb_vw10_q0.55_rf21_tw1000: avg=1.210  min_seed=0.498
+  hyb_vw10_q0.55_rf14_tw750: avg=1.166  min_seed=0.311
+  [1/6] CONFIRM hyb_vw10_q0.50_rf14_tw750 at 10 seeds  (elapsed 0s)
+  [2/6] CONFIRM hyb_vw10_q0.55_rf14_tw1000 at 10 seeds  (elapsed 21s)
+  [3/6] CONFIRM hyb_vw10_q0.40_rf14_tw750 at 10 seeds  (elapsed 43s)
+  [4/6] CONFIRM hyb_vw10_q0.55_rf21_tw1000 at 10 seeds  (elapsed 64s)
+  [5/6] CONFIRM hyb_vw10_q0.55_rf14_tw750 at 10 seeds  (elapsed 84s)
+  [6/6] CONFIRM hybrid_prod_q0.70_w10_r21_tw1000 at 10 seeds  (elapsed 106s)
+
+========================================================================
+TIER 4 — 10-seed final ranking
+========================================================================
+                           label  avg_median_sharpe  stderr_median_sharpe  min_median_sharpe  max_median_sharpe  avg_mean_mdd
+       hyb_vw10_q0.50_rf14_tw750           1.551481              0.098987           1.009994           1.949316     -0.259710
+       hyb_vw10_q0.55_rf14_tw750           1.409938              0.184650           0.311199           2.172323     -0.262722
+      hyb_vw10_q0.55_rf14_tw1000           1.367843              0.088156           0.852853           1.715428     -0.246274
+       hyb_vw10_q0.40_rf14_tw750           1.329274              0.122733           0.722721           1.851627     -0.245860
+      hyb_vw10_q0.55_rf21_tw1000           1.248910              0.118060           0.497666           1.725906     -0.234701
+hybrid_prod_q0.70_w10_r21_tw1000           0.892602              0.099711           0.345267           1.402525     -0.247688
+
+========================================================================
+DSR-corrected verdict
+========================================================================
+  Sweep trial count: 144
+  Project-level trial count: 2044
+  Baseline avg median Sharpe: 0.893
+  Winner (hyb_vw10_q0.50_rf14_tw750) avg median Sharpe: 1.551
+  Delta: +0.659
+  FAILS DSR at n_trials=144 (DSR=0.0000)
+  FAILS DSR at n_trials=2044 (DSR=0.0000)
+
+  >>> WINNER CLEARS MATERIALITY THRESHOLD (+0.10 avg AND dominates on min seed)
+
+[wrote] /Users/jlg/claude/signals/scripts/data/explore_improvements.parquet  (12480 rows)
+[wrote] /Users/jlg/claude/signals/scripts/data/explore_improvements.md

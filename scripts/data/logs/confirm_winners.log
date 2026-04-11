@@ -1,0 +1,53 @@
+BTC-USD: 3653 bars
+
+=== vf_vw14_q0.60_rf7 ===
+  seed=  42  elapsed=0s
+  seed=   7  elapsed=0s
+  seed= 100  elapsed=0s
+  seed= 999  elapsed=1s
+  seed=1337  elapsed=1s
+  seed=2024  elapsed=1s
+  seed=   3  elapsed=1s
+  seed=  11  elapsed=1s
+  seed=  17  elapsed=1s
+  seed=  23  elapsed=2s
+
+=== hvol_q0.70_legacy ===
+  seed=  42  elapsed=4s
+  seed=   7  elapsed=6s
+  seed= 100  elapsed=8s
+  seed= 999  elapsed=10s
+  seed=1337  elapsed=12s
+  seed=2024  elapsed=14s
+  seed=   3  elapsed=16s
+  seed=  11  elapsed=18s
+  seed=  17  elapsed=20s
+  seed=  23  elapsed=22s
+
+=== hvol_q0.50_new_default ===
+  seed=  42  elapsed=24s
+  seed=   7  elapsed=26s
+  seed= 100  elapsed=28s
+  seed= 999  elapsed=30s
+  seed=1337  elapsed=32s
+  seed=2024  elapsed=34s
+  seed=   3  elapsed=36s
+  seed=  11  elapsed=38s
+  seed=  17  elapsed=40s
+  seed=  23  elapsed=42s
+
+========================================================================
+10-seed confirmation — multi-seed avg of per-seed median Sharpe
+========================================================================
+              strategy     mean      sem      min      max
+     hvol_q0.70_legacy 1.175013 0.083097 0.784081 1.446635
+hvol_q0.50_new_default 1.080955 0.074028 0.800425 1.456593
+     vf_vw14_q0.60_rf7 0.889952 0.102244 0.199980 1.343286
+
+Winner: hvol_q0.70_legacy
+  multi-seed mean Sharpe = 1.175 ± 0.083
+  DSR at sweep n_trials=144:   0.0000
+  DSR at project n_trials=2044: 0.0000
+
+[wrote] /Users/jlg/claude/signals/scripts/data/confirm_winners.parquet
+[wrote] /Users/jlg/claude/signals/scripts/data/confirm_winners.md
