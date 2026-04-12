@@ -9,6 +9,8 @@ try:
 except ImportError:
     pass
 
+import os
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -26,76 +28,110 @@ auto_app = typer.Typer(
 )
 console = Console()
 
+# Account key mapping — each account reads its own env vars
+ACCOUNT_KEYS = {
+    "momentum": ("ALPACA_API_KEY", "ALPACA_SECRET_KEY"),
+    "multifactor": ("ALPACA_MULTIFACTOR_KEY", "ALPACA_MULTIFACTOR_SECRET"),
+    "baseline": ("ALPACA_BASELINE_KEY", "ALPACA_BASELINE_SECRET"),
+}
+
+
+def _set_alpaca_keys(account: str) -> None:
+    """Point the standard ALPACA_API_KEY/SECRET_KEY env vars at the
+    right account's credentials. The AlpacaBroker reads the standard
+    names, so we swap them before it initialises."""
+    key_var, secret_var = ACCOUNT_KEYS.get(account, ACCOUNT_KEYS["momentum"])
+    key = os.environ.get(key_var, "")
+    secret = os.environ.get(secret_var, "")
+    if not key or not secret:
+        console.print(
+            f"[red]Missing env vars {key_var} / {secret_var} for account '{account}'[/red]"
+        )
+        raise typer.Exit(1)
+    os.environ["ALPACA_API_KEY"] = key
+    os.environ["ALPACA_SECRET_KEY"] = secret
+
 
 def _make_engine(
     capital: float = 100_000.0,
-    momentum_weight: float = 0.50,
-    tsmom_weight: float = 0.30,
-    pead_weight: float = 0.20,
+    account: str = "momentum",
 ) -> tuple[InsightsEngine, SignalStore, CashOverlay]:
-    """Build the full automation stack."""
+    """Build the full automation stack.
+
+    The account type determines the strategy mix:
+      momentum    → 100% cross-sectional momentum on SP500
+      multifactor → 100% multi-factor (momentum+value+quality+news filter)
+      baseline    → not used (SPY B&H, no signals needed)
+    """
     data_store = DataStore(SETTINGS.data.dir)
     signal_store = SignalStore(db_path=str(data_store.db_path))
-    overlay = CashOverlay(
-        total_capital=capital,
-        model_weights={
-            "momentum": momentum_weight,
-            "tsmom": tsmom_weight,
-            "pead": pead_weight,
-        },
-    )
-    engine = InsightsEngine(
-        signal_store=signal_store,
-        cash_overlay=overlay,
-        data_store=data_store,
-    )
+
+    if account == "multifactor":
+        # Multi-factor uses 100% momentum allocation but with the
+        # MultiFactor ranker + news filter via use_multifactor=True
+        overlay = CashOverlay(
+            total_capital=capital,
+            model_weights={"momentum": 1.0, "tsmom": 0.0, "pead": 0.0},
+        )
+        engine = InsightsEngine(
+            signal_store=signal_store,
+            cash_overlay=overlay,
+            data_store=data_store,
+            use_multifactor=True,
+        )
+    else:
+        # Pure momentum — 100% cross-sectional momentum on full SP500
+        overlay = CashOverlay(
+            total_capital=capital,
+            model_weights={"momentum": 1.0, "tsmom": 0.0, "pead": 0.0},
+        )
+        engine = InsightsEngine(
+            signal_store=signal_store,
+            cash_overlay=overlay,
+            data_store=data_store,
+            use_multifactor=False,
+        )
     return engine, signal_store, overlay
 
 
 @auto_app.command("daily")
 def auto_daily(
     capital: float = typer.Option(100_000.0, "--capital"),
-    momentum_weight: float = typer.Option(0.50, "--momentum-weight"),
-    tsmom_weight: float = typer.Option(0.30, "--tsmom-weight"),
-    pead_weight: float = typer.Option(0.20, "--pead-weight"),
+    account: str = typer.Option("momentum", "--account",
+                                help="momentum, multifactor, or baseline"),
 ) -> None:
     """Run daily signal generation and print the insights report (no trading)."""
-    engine, _store, _overlay = _make_engine(
-        capital, momentum_weight, tsmom_weight, pead_weight
-    )
+    engine, _store, _overlay = _make_engine(capital, account)
     report = engine.run_daily()
     console.print(report["report_text"])
-    console.print(
-        f"\n[dim]Signals stored: momentum={report['n_momentum_signals']}, "
-        f"tsmom={report['n_tsmom_signals']}, pead={report['n_pead_signals']}[/dim]"
-    )
 
 
 @auto_app.command("trade")
 def auto_trade(
     capital: float = typer.Option(100_000.0, "--capital"),
-    momentum_weight: float = typer.Option(0.50, "--momentum-weight"),
-    tsmom_weight: float = typer.Option(0.30, "--tsmom-weight"),
-    pead_weight: float = typer.Option(0.20, "--pead-weight"),
-    broker: str = typer.Option("paper", "--broker", help="paper or alpaca"),
+    account: str = typer.Option("momentum", "--account",
+                                help="momentum, multifactor, or baseline"),
 ) -> None:
-    """Run daily signals and execute trades.
+    """Run daily signals and execute trades on Alpaca.
 
-    --broker paper   (default) local PaperBroker with SQLite persistence
-    --broker alpaca  Alpaca Trading API paper account (requires
-                     ALPACA_API_KEY + ALPACA_SECRET_KEY env vars)
+    --account momentum     Pure cross-sectional momentum, top-10 of SP500
+    --account multifactor  Multi-factor (momentum+value+quality) + news filter
+    --account baseline     Not applicable (SPY B&H, just sits)
     """
-    engine, _store, _overlay = _make_engine(
-        capital, momentum_weight, tsmom_weight, pead_weight
-    )
-    runner = PaperTradeRunner(engine=engine, initial_capital=capital, broker=broker)
+    if account == "baseline":
+        console.print("[yellow]Baseline account is SPY B&H — no daily trades needed.[/yellow]")
+        return
+
+    _set_alpaca_keys(account)
+    engine, _store, _overlay = _make_engine(capital, account)
+    runner = PaperTradeRunner(engine=engine, initial_capital=capital, broker="alpaca")
     result = runner.execute_daily()
 
     console.print(result["report"]["report_text"])
     console.print()
 
     if result["executed_orders"]:
-        table = Table(title="Executed Paper Trades")
+        table = Table(title=f"Executed Trades — {account} account")
         table.add_column("Ticker")
         table.add_column("Action")
         table.add_column("Shares")
@@ -111,7 +147,7 @@ def auto_trade(
             )
         console.print(table)
     else:
-        console.print("[yellow]No trades executed (no price data available)[/yellow]")
+        console.print("[yellow]No trades executed[/yellow]")
 
     console.print(f"\n[bold]Equity:[/bold] ${result['equity']:,.2f}")
     console.print(f"[bold]Cash:[/bold] ${result['cash']:,.2f}")
@@ -119,44 +155,99 @@ def auto_trade(
 
 @auto_app.command("positions")
 def auto_positions(
-    capital: float = typer.Option(100_000.0, "--capital"),
-    broker: str = typer.Option("paper", "--broker", help="paper or alpaca"),
+    account: str = typer.Option("momentum", "--account",
+                                help="momentum, multifactor, or baseline"),
 ) -> None:
-    """View current positions."""
-    engine, _store, _overlay = _make_engine(capital)
-    runner = PaperTradeRunner(engine=engine, initial_capital=capital, broker=broker)
+    """View current positions on an Alpaca account."""
+    _set_alpaca_keys(account)
 
-    positions = runner.get_positions()
-    if positions.empty:
-        console.print("[yellow]No open positions[/yellow]")
-        return
+    from alpaca.trading.client import TradingClient
+    client = TradingClient(
+        os.environ["ALPACA_API_KEY"],
+        os.environ["ALPACA_SECRET_KEY"],
+        paper=True,
+    )
+    acct = client.get_account()
+    positions = client.get_all_positions()
 
-    table = Table(title="Paper Portfolio Positions")
-    for col in positions.columns:
-        table.add_column(col)
-    for _, row in positions.iterrows():
-        table.add_row(*[f"{v:,.4f}" if isinstance(v, float) else str(v) for v in row])
+    table = Table(title=f"Positions — {account} account")
+    table.add_column("Ticker")
+    table.add_column("Shares", justify="right")
+    table.add_column("Avg Price", justify="right")
+    table.add_column("Current", justify="right")
+    table.add_column("Market Value", justify="right")
+    table.add_column("P&L", justify="right")
+    table.add_column("P&L %", justify="right")
+
+    for p in positions:
+        pnl = float(p.unrealized_pl)
+        pnl_pct = float(p.unrealized_plpc) * 100
+        color = "green" if pnl >= 0 else "red"
+        table.add_row(
+            p.symbol,
+            str(p.qty),
+            f"${float(p.avg_entry_price):,.2f}",
+            f"${float(p.current_price):,.2f}",
+            f"${float(p.market_value):,.2f}",
+            f"[{color}]${pnl:+,.2f}[/{color}]",
+            f"[{color}]{pnl_pct:+.2f}%[/{color}]",
+        )
+
     console.print(table)
+    console.print(f"\n[bold]Cash:[/bold] ${float(acct.cash):,.2f}")
+    console.print(f"[bold]Portfolio Value:[/bold] ${float(acct.portfolio_value):,.2f}")
 
 
 @auto_app.command("performance")
 def auto_performance(
-    capital: float = typer.Option(100_000.0, "--capital"),
-    broker: str = typer.Option("paper", "--broker", help="paper or alpaca"),
+    account: str = typer.Option("all", "--account",
+                                help="momentum, multifactor, baseline, or all"),
 ) -> None:
-    """View trading performance metrics."""
-    engine, _store, _overlay = _make_engine(capital)
-    runner = PaperTradeRunner(engine=engine, initial_capital=capital, broker=broker)
+    """View trading performance. Use --account all for side-by-side comparison."""
+    accounts_to_show = (
+        ["momentum", "multifactor", "baseline"] if account == "all"
+        else [account]
+    )
 
-    perf = runner.get_performance()
-    table = Table(title="Paper Trading Performance")
-    table.add_column("Metric")
-    table.add_column("Value")
-    table.add_row("Total Return", f"{perf['total_return'] * 100:.2f}%")
-    table.add_row("Sharpe Ratio", f"{perf['sharpe']:.2f}")
-    table.add_row("Max Drawdown", f"{perf['max_drawdown'] * 100:.2f}%")
-    table.add_row("Trading Days", str(perf["n_days"]))
-    table.add_row("Current Equity", f"${perf['current_equity']:,.2f}")
+    from alpaca.trading.client import TradingClient
+
+    table = Table(title="Performance Comparison")
+    table.add_column("Account")
+    table.add_column("Portfolio Value", justify="right")
+    table.add_column("Cash", justify="right")
+    table.add_column("Positions", justify="right")
+    table.add_column("P&L", justify="right")
+    table.add_column("Return", justify="right")
+
+    for acct_name in accounts_to_show:
+        try:
+            key_var, secret_var = ACCOUNT_KEYS[acct_name]
+            key = os.environ.get(key_var, "")
+            secret = os.environ.get(secret_var, "")
+            if not key or not secret:
+                table.add_row(acct_name, "—", "—", "—", "—", "[red]no keys[/red]")
+                continue
+
+            client = TradingClient(key, secret, paper=True)
+            a = client.get_account()
+            positions = client.get_all_positions()
+            pv = float(a.portfolio_value)
+            cash = float(a.cash)
+            pnl = pv - 100_000
+            ret = pnl / 100_000 * 100
+            color = "green" if pnl >= 0 else "red"
+
+            table.add_row(
+                acct_name,
+                f"${pv:,.2f}",
+                f"${cash:,.2f}",
+                str(len(positions)),
+                f"[{color}]${pnl:+,.2f}[/{color}]",
+                f"[{color}]{ret:+.2f}%[/{color}]",
+            )
+        except Exception as e:
+            table.add_row(acct_name, "—", "—", "—", "—", f"[red]{e}[/red]")
+
     console.print(table)
 
 
@@ -184,39 +275,41 @@ def auto_history(
 
 
 @auto_app.command("config")
-def auto_config(
-    capital: float = typer.Option(100_000.0, "--capital"),
-    momentum_weight: float = typer.Option(0.50, "--momentum-weight"),
-    tsmom_weight: float = typer.Option(0.30, "--tsmom-weight"),
-    pead_weight: float = typer.Option(0.20, "--pead-weight"),
-) -> None:
-    """Display the cash overlay configuration."""
-    overlay = CashOverlay(
-        total_capital=capital,
-        model_weights={
-            "momentum": momentum_weight,
-            "tsmom": tsmom_weight,
-            "pead": pead_weight,
-        },
-    )
-    console.print(overlay.summary())
+def auto_config() -> None:
+    """Display account configuration and connection status."""
+    from alpaca.trading.client import TradingClient
 
+    table = Table(title="Account Configuration")
+    table.add_column("Account")
+    table.add_column("Strategy")
+    table.add_column("Key Env Var")
+    table.add_column("Status")
+    table.add_column("Cash")
 
-@auto_app.command("weekly")
-def auto_weekly(
-    capital: float = typer.Option(100_000.0, "--capital"),
-    momentum_weight: float = typer.Option(0.50, "--momentum-weight"),
-    tsmom_weight: float = typer.Option(0.30, "--tsmom-weight"),
-    pead_weight: float = typer.Option(0.20, "--pead-weight"),
-) -> None:
-    """Run weekly deep analysis."""
-    engine, _store, _overlay = _make_engine(
-        capital, momentum_weight, tsmom_weight, pead_weight
-    )
-    report = engine.run_weekly()
-    console.print(report["report_text"])
-    console.print(
-        f"\n[bold]Weekly summary:[/bold] "
-        f"{report.get('weekly_signal_count', 0)} signals from "
-        f"{report.get('weekly_models_active', 0)} models in last 7 days"
-    )
+    strategies = {
+        "momentum": "Cross-sectional momentum top-10 (SP500)",
+        "multifactor": "Multi-factor (mom+val+qual) + news filter",
+        "baseline": "SPY buy-and-hold",
+    }
+
+    for acct_name, (key_var, secret_var) in ACCOUNT_KEYS.items():
+        key = os.environ.get(key_var, "")
+        secret = os.environ.get(secret_var, "")
+        strategy = strategies.get(acct_name, "?")
+
+        if not key or not secret:
+            table.add_row(acct_name, strategy, key_var, "[red]missing keys[/red]", "—")
+            continue
+
+        try:
+            client = TradingClient(key, secret, paper=True)
+            a = client.get_account()
+            table.add_row(
+                acct_name, strategy, key_var,
+                "[green]connected[/green]",
+                f"${float(a.cash):,.2f}",
+            )
+        except Exception as e:
+            table.add_row(acct_name, strategy, key_var, f"[red]{e}[/red]", "—")
+
+    console.print(table)
