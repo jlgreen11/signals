@@ -3,7 +3,7 @@
 [![CI](https://github.com/jlgreen11/signals/actions/workflows/ci.yml/badge.svg)](https://github.com/jlgreen11/signals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-231%20passing-brightgreen.svg)](./tests)
+[![Tests](https://img.shields.io/badge/tests-254%20passing-brightgreen.svg)](./tests)
 
 A quant research project that spent 10 rounds of adversarial review
 testing every approach we could find — Markov chains, trend filters,
@@ -224,7 +224,7 @@ print(f"Final: ${equity.iloc[-1]:,.0f}")
 pytest --cov=signals
 ```
 
-**231 tests** across 25 test modules covering all model classes
+**254 tests** across 26 test modules covering all model classes
 (momentum, TSMOM, PEAD, pairs, Markov sunset, hybrid, trend, boost,
 ensemble, composite, HMM, HOMC, lookahead regression, sunset warnings,
 absolute encoder, rule-based signals) plus engine, portfolio, metrics,
