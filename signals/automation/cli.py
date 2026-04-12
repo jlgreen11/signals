@@ -130,24 +130,35 @@ def auto_trade(
     console.print(result["report"]["report_text"])
     console.print()
 
-    if result["executed_orders"]:
-        table = Table(title=f"Executed Trades — {account} account")
-        table.add_column("Ticker")
-        table.add_column("Action")
-        table.add_column("Shares")
-        table.add_column("Price")
-        table.add_column("Notional")
-        for order in result["executed_orders"]:
-            table.add_row(
-                order["ticker"],
-                order["action"],
-                f"{order['shares']:.4f}",
-                f"${order['price']:,.2f}",
-                f"${order['notional']:,.2f}",
-            )
-        console.print(table)
+    if result.get("rebalance"):
+        console.print(
+            f"[bold green]REBALANCE DAY[/bold green] — "
+            f"{result['days_since_rebalance']} trading days since last rebalance"
+        )
+        if result["executed_orders"]:
+            table = Table(title=f"Executed Trades — {account} account")
+            table.add_column("Ticker")
+            table.add_column("Action")
+            table.add_column("Shares")
+            table.add_column("Price")
+            table.add_column("Notional")
+            for order in result["executed_orders"]:
+                table.add_row(
+                    order["ticker"],
+                    order["action"],
+                    f"{order['shares']:.4f}",
+                    f"${order['price']:,.2f}",
+                    f"${order['notional']:,.2f}",
+                )
+            console.print(table)
+        else:
+            console.print("[yellow]No trades needed (same top-10 as before)[/yellow]")
     else:
-        console.print("[yellow]No trades executed[/yellow]")
+        next_in = result.get("next_rebalance_in", "?")
+        console.print(
+            f"[dim]No rebalance due — {result.get('days_since_rebalance', '?')}/21 "
+            f"trading days since last. Next rebalance in ~{next_in} days.[/dim]"
+        )
 
     console.print(f"\n[bold]Equity:[/bold] ${result['equity']:,.2f}")
     console.print(f"[bold]Cash:[/bold] ${result['cash']:,.2f}")

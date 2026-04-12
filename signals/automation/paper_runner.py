@@ -229,26 +229,110 @@ class PaperTradeRunner:
             except Exception as e:
                 log.warning("Price load failed for %s: %s", ticker, e)
 
-    def execute_daily(self, earnings_df: pd.DataFrame | None = None) -> dict:
-        """Run the insights engine, compute rebalance trades, execute them.
+    def _get_trading_days_since_last_rebalance(self) -> int:
+        """Count equity-calendar trading days since the last rebalance.
+
+        Uses paper_state table key 'last_rebalance_date'. Returns a
+        large number (999) if no rebalance has ever been recorded,
+        which forces the first run to trade immediately.
+        """
+        conn = sqlite3.connect(self._db_path)
+        try:
+            row = conn.execute(
+                "SELECT value FROM paper_state WHERE key = 'last_rebalance_date'"
+            ).fetchone()
+            if not row:
+                return 999  # never rebalanced → trade immediately
+            last_date = datetime.fromisoformat(row[0])
+            # Count weekdays (rough equity calendar) between then and now
+            now = datetime.now(tz=UTC)
+            days = 0
+            d = last_date
+            from datetime import timedelta
+            while d.date() < now.date():
+                d += timedelta(days=1)
+                if d.weekday() < 5:  # Mon-Fri
+                    days += 1
+            return days
+        except Exception:
+            return 999
+        finally:
+            conn.close()
+
+    def _record_rebalance(self) -> None:
+        """Mark today as the last rebalance date."""
+        conn = sqlite3.connect(self._db_path)
+        conn.execute(
+            "INSERT OR REPLACE INTO paper_state (key, value) VALUES (?, ?)",
+            ("last_rebalance_date", datetime.now(tz=UTC).isoformat()),
+        )
+        conn.commit()
+        conn.close()
+
+    def execute_daily(
+        self,
+        earnings_df: pd.DataFrame | None = None,
+        rebalance_freq: int = 21,
+    ) -> dict:
+        """Run the insights engine, rebalance if due, track equity daily.
+
+        The rebalance_freq parameter controls how many trading days must
+        pass between rebalances (default 21 = monthly). On non-rebalance
+        days the method still runs signals and records equity, but does
+        NOT submit any orders. This matches the backtest behavior where
+        the portfolio rides between rebalance points.
 
         Steps:
-        1. Run engine.run_daily()
-        2. Get current positions from the paper broker
-        3. Compute rebalance orders via CashOverlay
-        4. Execute each order through the broker
-        5. Log all trades
-        6. Compute daily P&L
-        7. Return execution report
+        1. Check if rebalance is due (trading days since last >= rebalance_freq)
+        2. Run engine.run_daily() for signal generation + reporting
+        3. If rebalance due: compute orders and execute
+        4. If not due: log "no rebalance" and skip trading
+        5. Record daily equity either way
         """
         now = datetime.now(tz=UTC)
+        days_since = self._get_trading_days_since_last_rebalance()
+        is_rebalance_day = days_since >= rebalance_freq
 
-        # Step 1: Run daily signals
+        # Step 1: Run daily signals (always — for reporting and signal storage)
         report = self.engine.run_daily(earnings_df)
         blended = report["blended_allocation"]
 
         # Step 2: Update prices
         self._update_prices()
+
+        if not is_rebalance_day:
+            # Not a rebalance day — just record equity and return
+            equity = self._compute_equity()
+            eq_record = {
+                "timestamp": now.isoformat(),
+                "date": now.strftime("%Y-%m-%d"),
+                "equity": equity,
+                "cash": self._broker.get_cash(),
+                "n_positions": len(self._broker.get_positions()),
+                "n_trades": 0,
+            }
+            self._daily_equity.append(eq_record)
+            self._persist_equity(eq_record)
+            log.info(
+                "No rebalance due (%d/%d trading days since last). "
+                "Next rebalance in ~%d days.",
+                days_since, rebalance_freq, rebalance_freq - days_since,
+            )
+            return {
+                "timestamp": now.isoformat(),
+                "report": report,
+                "executed_orders": [],
+                "n_orders": 0,
+                "equity": equity,
+                "cash": self._broker.get_cash(),
+                "positions": self._get_position_values(),
+                "rebalance": False,
+                "days_since_rebalance": days_since,
+                "next_rebalance_in": rebalance_freq - days_since,
+            }
+
+        # Rebalance day — compute and execute orders
+        log.info("REBALANCE DAY (%d days since last)", days_since)
 
         # Step 3: Get current positions
         current_positions = self._get_position_values()
@@ -323,6 +407,9 @@ class PaperTradeRunner:
         if not self._use_alpaca:
             self._save_state()
 
+        # Step 9: Record this as the last rebalance date
+        self._record_rebalance()
+
         return {
             "timestamp": now.isoformat(),
             "report": report,
@@ -331,6 +418,8 @@ class PaperTradeRunner:
             "equity": equity,
             "cash": self._broker.get_cash(),
             "positions": self._get_position_values(),
+            "rebalance": True,
+            "days_since_rebalance": days_since,
         }
 
     def _get_position_values(self) -> dict[str, float]:
