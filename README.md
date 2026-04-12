@@ -191,16 +191,82 @@ enhancement.
 
 ## Install
 
-Python 3.11+ required.
+### Option 1 — Install from GitHub (any machine, no clone needed)
 
 ```bash
+pip install git+https://github.com/jlgreen11/signals.git
+```
+
+### Option 2 — Clone and install locally (for development)
+
+```bash
+git clone https://github.com/jlgreen11/signals.git
+cd signals
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-pip install statsmodels lxml  # for pairs trading + PEAD earnings
 ```
 
-## Quick start — momentum strategy
+### Set up API keys
+
+Create a `.env` file in the project root (this file is gitignored and
+will never be committed):
+
+```bash
+# .env
+ALPACA_API_KEY=PK...your key...
+ALPACA_SECRET_KEY=...your secret...
+ALPACA_BASE_URL=https://paper-api.alpaca.markets
+```
+
+Get your Alpaca keys at [alpaca.markets](https://alpaca.markets) →
+sign up → Trading API → Paper Trading → API Keys.
+
+The `.env` file auto-loads when you run any `signals auto` command.
+Without it, the local paper broker works fine — Alpaca is only needed
+for real paper trading with live market fills.
+
+### Fetch price data
+
+```bash
+# Fetch SP500 constituents via Alpaca data API (fast, ~500 stocks in 2 min):
+signals data fetch ^GSPC --start 2015-01-01
+
+# Or fetch individual tickers via yfinance:
+signals data fetch AAPL --start 2015-01-01
+signals data fetch NVDA --start 2015-01-01
+# ... etc
+```
+
+The full SP500 dataset (~498 tickers) can be bulk-fetched via the
+Alpaca data API if you have credentials set up — see
+`scripts/universe_analysis.py` for the batch fetch code.
+
+### Run the daily automation
+
+```bash
+# Generate signals + place paper trades on Alpaca:
+signals auto trade --broker alpaca
+
+# Or use the local paper broker (no API keys needed):
+signals auto trade
+
+# View positions, performance, signal history:
+signals auto positions --broker alpaca
+signals auto performance --broker alpaca
+signals auto history LITE --days 30
+```
+
+### Automate (optional cron job)
+
+```bash
+# Add to crontab — runs Mon-Fri at 4:35pm ET:
+crontab -e
+# Paste this line:
+35 20 * * 1-5 cd /path/to/signals && .venv/bin/signals auto trade --broker alpaca >> data/auto.log 2>&1
+```
+
+## Quick start — momentum strategy (Python API)
 
 ```python
 from signals.model.momentum import CrossSectionalMomentum
@@ -208,14 +274,17 @@ from signals.data.storage import DataStore
 from signals.config import SETTINGS
 
 store = DataStore(SETTINGS.data.dir)
-tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA",
-           "BRK-B", "UNH", "JNJ", "JPM", "V", "PG", "XOM", "LLY",
-           "AVGO", "COST", "NFLX", "AMD", "ADBE"]
-prices = {t: store.load(t, "1d") for t in tickers}
 
-mom = CrossSectionalMomentum(lookback_days=252, skip_days=21, n_long=5)
-equity = mom.backtest(prices, "2019-04-01", "2026-04-01")
-print(f"Final: ${equity.iloc[-1]:,.0f}")
+# Load the full SP500 (after fetching data)
+import pandas as pd
+sp500 = pd.read_csv("https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv")
+tickers = sp500["Symbol"].str.replace(".", "-").tolist()
+prices = {t: store.load(t, "1d") for t in tickers if len(store.load(t, "1d")) > 500}
+
+# Run momentum: rank 498 stocks, go long top 10
+mom = CrossSectionalMomentum(lookback_days=252, skip_days=21, n_long=10)
+equity = mom.backtest(prices, "2022-04-01", "2026-04-01")
+print(f"Final: ${equity.iloc[-1]:,.0f}")  # ~$66k from $10k
 ```
 
 ## Tests
