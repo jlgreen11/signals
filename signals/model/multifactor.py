@@ -45,6 +45,33 @@ def _percentile_rank(series: pd.Series) -> pd.Series:
     return ranked.reindex(series.index)
 
 
+def zscore_cross_section(values: dict[str, float]) -> dict[str, float]:
+    """Z-score normalize a cross-section of factor values.
+
+    Ported from Vibe-Trading's multi-factor signal engine. Preserves
+    magnitude information: a stock at 2-sigma momentum gets weighted more
+    than one at 1-sigma, unlike percentile ranking which treats 51st and
+    99th percentile with equal spacing.
+
+    Args:
+        values: {ticker: raw_factor_value}. NaN values are set to 0.0.
+
+    Returns:
+        {ticker: z_score} with mean ~0 and std ~1 across the cross-section.
+    """
+    vals = [v for v in values.values() if not np.isnan(v)]
+    if len(vals) < 2:
+        return {k: 0.0 for k in values}
+    mean = np.mean(vals)
+    std = np.std(vals, ddof=1)
+    if std < 1e-12:
+        return {k: 0.0 for k in values}
+    return {
+        k: (v - mean) / std if not np.isnan(v) else 0.0
+        for k, v in values.items()
+    }
+
+
 class MultiFactor:
     """Composite stock scorer: momentum + value + quality + volatility filter.
 
@@ -64,6 +91,10 @@ class MultiFactor:
         Weight for the value factor in [0, 1].
     quality_weight : float
         Weight for the quality factor in [0, 1].
+    volume_weight : float
+        Weight for the volume ratio factor in [0, 1]. Default 0.0 (opt-in).
+        When > 0, the volume ratio (today_volume / 20d_mean_volume) is added
+        as a fourth factor. Higher volume ratio = higher conviction.
     n_long : int
         Number of top-ranked stocks to hold (equal-weight).
     vol_filter_quantile : float
@@ -79,6 +110,9 @@ class MultiFactor:
         One-way commission in basis points per rebalance.
     slippage_bps : float
         One-way slippage in basis points per rebalance.
+    scoring_method : str
+        "percentile" (default) or "zscore". Z-score preserves magnitude:
+        a stock at 2-sigma momentum gets more weight than one at 1-sigma.
     """
 
     def __init__(
@@ -86,6 +120,7 @@ class MultiFactor:
         momentum_weight: float = 0.40,
         value_weight: float = 0.30,
         quality_weight: float = 0.30,
+        volume_weight: float = 0.0,
         n_long: int = 10,
         vol_filter_quantile: float = 0.75,
         lookback_days: int = 252,
@@ -93,16 +128,23 @@ class MultiFactor:
         rebalance_freq: int = 21,
         commission_bps: float = 5.0,
         slippage_bps: float = 5.0,
+        scoring_method: str = "percentile",
     ) -> None:
-        total = momentum_weight + value_weight + quality_weight
+        total = momentum_weight + value_weight + quality_weight + volume_weight
         if abs(total - 1.0) > 1e-6:
             raise ValueError(
                 f"Factor weights must sum to 1.0, got {total:.4f} "
-                f"(mom={momentum_weight}, val={value_weight}, qual={quality_weight})"
+                f"(mom={momentum_weight}, val={value_weight}, "
+                f"qual={quality_weight}, vol={volume_weight})"
+            )
+        if scoring_method not in ("percentile", "zscore"):
+            raise ValueError(
+                f"scoring_method must be 'percentile' or 'zscore', got {scoring_method!r}"
             )
         self.momentum_weight = momentum_weight
         self.value_weight = value_weight
         self.quality_weight = quality_weight
+        self.volume_weight = volume_weight
         self.n_long = n_long
         self.vol_filter_quantile = vol_filter_quantile
         self.lookback_days = lookback_days
@@ -110,6 +152,7 @@ class MultiFactor:
         self.rebalance_freq = rebalance_freq
         self.commission_bps = commission_bps
         self.slippage_bps = slippage_bps
+        self.scoring_method = scoring_method
 
     def _required_history(self) -> int:
         """Minimum trading days a stock needs to be rankable."""
@@ -230,12 +273,23 @@ class MultiFactor:
             pe = fund.get("pe_ratio")
             roe = fund.get("roe")
 
+            # Volume ratio: today's volume / 20-day mean volume
+            vol_ratio = np.nan
+            if self.volume_weight > 0 and "volume" in df.columns:
+                vol_data = df.loc[df.index <= as_of_date, "volume"]
+                if len(vol_data) >= 20:
+                    today_vol = vol_data.iloc[-1]
+                    mean_vol = vol_data.iloc[-20:].mean()
+                    if mean_vol > 0:
+                        vol_ratio = float(today_vol / mean_vol)
+
             records.append({
                 "ticker": symbol,
                 "momentum_raw": mom_return,
                 "pe_ratio": pe,
                 "roe": roe,
                 "vol_63d": vol_63d,
+                "volume_ratio": vol_ratio,
             })
 
         if not records:
@@ -252,38 +306,80 @@ class MultiFactor:
         vol_threshold = df_scores["vol_63d"].quantile(self.vol_filter_quantile)
         df_scores["included"] = df_scores["vol_63d"] <= vol_threshold
 
-        # Step 3: Rank factors among INCLUDED stocks only
+        # Step 3: Score factors among INCLUDED stocks only
         included = df_scores[df_scores["included"]].copy()
 
-        # Momentum rank: higher return = higher rank
-        included["momentum_rank"] = _percentile_rank(included["momentum_raw"])
+        if self.scoring_method == "zscore":
+            # Z-score method: preserves magnitude information
+            mom_zs = zscore_cross_section(included["momentum_raw"].to_dict())
+            included["momentum_rank"] = included.index.map(
+                lambda t, m=mom_zs: m.get(t, 0.0)
+            )
 
-        # Value rank: lower P/E = higher value score
-        # Stocks with negative/missing P/E get worst value rank (0)
-        pe_valid = included["pe_ratio"].copy()
-        pe_valid[pe_valid <= 0] = np.nan  # Negative earnings -> worst rank
-        # Invert: lower P/E = higher score, so rank descending
-        # rank(ascending=False) gives high rank to low values
-        if pe_valid.notna().sum() > 0:
-            included["value_rank"] = _percentile_rank(-pe_valid.fillna(pe_valid.max() * 10))
-        else:
-            included["value_rank"] = 50.0  # All get median if no valid P/E
+            pe_valid = included["pe_ratio"].copy()
+            pe_valid[pe_valid <= 0] = np.nan
+            # Negate P/E so lower P/E = higher z-score
+            neg_pe = (-pe_valid.fillna(pe_valid.max() * 10 if pe_valid.notna().sum() > 0 else 0))
+            val_zs = zscore_cross_section(neg_pe.to_dict())
+            included["value_rank"] = included.index.map(
+                lambda t, m=val_zs: m.get(t, 0.0)
+            )
 
-        # Quality rank: higher ROE = higher rank
-        roe_series = included["roe"].copy()
-        if roe_series.notna().sum() > 0:
-            # Stocks without ROE get median rank
-            median_roe = roe_series.median()
+            roe_series = included["roe"].copy()
+            median_roe = roe_series.median() if roe_series.notna().sum() > 0 else 0.0
             roe_filled = roe_series.fillna(median_roe)
-            included["quality_rank"] = _percentile_rank(roe_filled)
+            qual_zs = zscore_cross_section(roe_filled.to_dict())
+            included["quality_rank"] = included.index.map(
+                lambda t, m=qual_zs: m.get(t, 0.0)
+            )
+
+            # Volume ratio z-score (if enabled)
+            if self.volume_weight > 0 and "volume_ratio" in included.columns:
+                vr_filled = included["volume_ratio"].fillna(1.0)
+                vr_zs = zscore_cross_section(vr_filled.to_dict())
+                included["volume_rank"] = included.index.map(
+                    lambda t, m=vr_zs: m.get(t, 0.0)
+                )
+            else:
+                included["volume_rank"] = 0.0
+
         else:
-            included["quality_rank"] = 50.0  # All get median if no valid ROE
+            # Percentile method (original default)
+            # Momentum rank: higher return = higher rank
+            included["momentum_rank"] = _percentile_rank(included["momentum_raw"])
+
+            # Value rank: lower P/E = higher value score
+            pe_valid = included["pe_ratio"].copy()
+            pe_valid[pe_valid <= 0] = np.nan
+            if pe_valid.notna().sum() > 0:
+                included["value_rank"] = _percentile_rank(
+                    -pe_valid.fillna(pe_valid.max() * 10)
+                )
+            else:
+                included["value_rank"] = 50.0
+
+            # Quality rank: higher ROE = higher rank
+            roe_series = included["roe"].copy()
+            if roe_series.notna().sum() > 0:
+                median_roe = roe_series.median()
+                roe_filled = roe_series.fillna(median_roe)
+                included["quality_rank"] = _percentile_rank(roe_filled)
+            else:
+                included["quality_rank"] = 50.0
+
+            # Volume ratio rank (if enabled)
+            if self.volume_weight > 0 and "volume_ratio" in included.columns:
+                vr_series = included["volume_ratio"].fillna(1.0)
+                included["volume_rank"] = _percentile_rank(vr_series)
+            else:
+                included["volume_rank"] = 50.0  # neutral when not used
 
         # Step 4: Composite score
         included["composite_score"] = (
             self.momentum_weight * included["momentum_rank"]
             + self.value_weight * included["value_rank"]
             + self.quality_weight * included["quality_rank"]
+            + self.volume_weight * included["volume_rank"]
         )
 
         # Merge back with excluded stocks
