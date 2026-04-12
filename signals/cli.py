@@ -10,6 +10,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from signals.automation.cli import auto_app
 from signals.backtest.engine import BacktestConfig, BacktestEngine, BacktestResult
 from signals.backtest.metrics import deflated_sharpe_ratio
 from signals.config import SETTINGS
@@ -39,6 +40,7 @@ app.add_typer(model_app, name="model")
 app.add_typer(signal_app, name="signal")
 app.add_typer(backtest_app, name="backtest")
 app.add_typer(paper_app, name="paper-trade")
+app.add_typer(auto_app, name="auto")
 
 console = Console()
 

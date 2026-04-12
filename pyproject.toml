@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "signals"
 version = "0.1.0"
-description = "Markov chain-based market signal generator"
+description = "Quant research: cross-sectional momentum, TSMOM, and PEAD beat buy-and-hold on US equities"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -27,6 +27,8 @@ dependencies = [
     "matplotlib>=3.8",
     "python-dateutil>=2.9",
     "openpyxl>=3.1",
+    "statsmodels>=0.14",
+    "lxml>=5.0",
 ]
 
 [project.optional-dependencies]
