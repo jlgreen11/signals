@@ -3,7 +3,7 @@
 [![CI](https://github.com/jlgreen11/signals/actions/workflows/ci.yml/badge.svg)](https://github.com/jlgreen11/signals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-254%20passing-brightgreen.svg)](./tests)
+[![Tests](https://img.shields.io/badge/tests-276%20passing-brightgreen.svg)](./tests)
 
 A quant research project that spent 10 rounds of adversarial review
 testing every approach we could find — Markov chains, trend filters,
@@ -24,28 +24,30 @@ amounts you can afford to lose entirely.
 
 ## What works (and what doesn't)
 
-After testing 5 model classes across 20 major US stocks (top-15 SP500 +
-top-10 NASDAQ), here's the honest scorecard. All numbers are trailing
-7-year (2019-04-01 → 2026-04-01), 252/yr equity annualization,
-risk-free rate ~2.3%.
+After testing 7 model classes across 498 SP500 stocks, here's the
+honest scorecard. Momentum and multi-factor numbers are on the full
+SP500 universe; TSMOM is on 8 asset classes. All correctly annualized
+at 252/yr for equities, risk-free rate ~2.3%.
 
 ### Strategies that BEAT buy-and-hold
 
-| Strategy | Sharpe | CAGR | Max DD | Signal class |
-|---|---:|---:|---:|---|
-| **Cross-sectional momentum** | **+1.030** | **+34.7%** | −34.9% | Relative stock ranking |
-| **PEAD earnings drift** | **+0.960** | **+23.4%** | −26.6% | Fundamental (earnings surprise) |
-| **TSMOM multi-asset** | **+0.947** | +9.8% | **−8.9%** | Macro asset-class trends |
+| Strategy | Universe | Sharpe | CAGR | Max DD | Signal class |
+|---|---|---:|---:|---:|---|
+| **Cross-sectional momentum top-10** | 498 SP500 | **+1.345** | **+60.3%** | −41.0% | Relative stock ranking |
+| **Multi-factor (mom+val+qual)** | 498 SP500 | **~+1.2** | **~+45%** | ~−35% | Composite: momentum + value + quality + news filter |
+| **Cross-sectional momentum top-5** | 498 SP500 | **+1.635** | **+96.2%** | −46.0% | Concentrated momentum |
+| **PEAD earnings drift** | 20 stocks | +0.960 | +23.4% | −26.6% | Fundamental (earnings surprise) |
+| **TSMOM multi-asset** | 8 assets | +0.947 | +9.8% | **−8.9%** | Macro asset-class trends |
 
 ### Strategies that LOST to buy-and-hold
 
 | Strategy | Sharpe | CAGR | Max DD | Why it failed |
 |---|---:|---:|---:|---|
-| SP500 buy-and-hold | +0.583 | +12.6% | −33.9% | *(benchmark)* |
-| Markov hybrid (best of 5 variants) | avg −0.18 delta | — | — | Wrong signal class: daily price/vol patterns on single stocks contain no exploitable edge at retail |
+| SP500 buy-and-hold | +0.491 | +9.7% | −21.9% | *(benchmark)* |
+| Markov hybrid (best of 5 variants) | avg −0.18 delta | — | — | Wrong signal class: daily price/vol patterns contain no exploitable edge at retail |
 | Trend filter (200-day MA) | 0/20 stocks | — | — | Individual stocks don't trend-follow like asset classes do |
 | Golden cross (50/200 MA) | 0/20 stocks | — | — | Same failure mode as trend filter |
-| Pairs trading (stat arb) | −0.474 | −5.8% | −47.2% | Edge too small for costs; mega-cap cointegration is unstable |
+| Pairs trading (stat arb) | −0.474 | −5.8% | −47.2% | Edge too small for costs; cointegration is unstable |
 
 ### The meta-lesson
 
@@ -54,13 +56,15 @@ patterns on single-stock daily bars** using Markov chains and trend
 filters. That approach failed across 20 stocks × 5 model variants =
 100 comparisons, with a **5% win rate** against buy-and-hold.
 
-The three strategies that work all use a **different information axis**:
+The four strategies that work all use a **different information axis**:
 
 1. **Momentum** — *which stock is winning relative to others?*
    (cross-sectional, not time-series)
-2. **TSMOM** — *is this entire asset class trending?*
+2. **Multi-factor** — *momentum + is it cheap + is it profitable?*
+   (composite scoring with value + quality filters)
+3. **TSMOM** — *is this entire asset class trending?*
    (macro, not single-stock)
-3. **PEAD** — *did the company beat earnings expectations?*
+4. **PEAD** — *did the company beat earnings expectations?*
    (fundamental, not price-pattern)
 
 **The signal class was the problem all along, not the evaluation
@@ -68,35 +72,56 @@ methodology or the model complexity.**
 
 ---
 
-## The three winning strategies in detail
+## The winning strategies in detail
 
 ### 1. Cross-sectional momentum — the standout winner
 
 [`signals/model/momentum.py`](./signals/model/momentum.py) |
 [`scripts/CROSS_SECTIONAL_MOMENTUM_RESULTS.md`](./scripts/CROSS_SECTIONAL_MOMENTUM_RESULTS.md)
 
-Jegadeesh & Titman (1993): rank 20 stocks by trailing 12-month return
-(excluding the most recent month), go long the top 5, rebalance
-monthly. 5+5 bps transaction costs.
+Jegadeesh & Titman (1993): rank all 498 SP500 stocks by trailing
+12-month return (excluding the most recent month), go long the top N,
+rebalance monthly. 5+5 bps transaction costs. Tested on the full SP500
+universe fetched via Alpaca data API.
 
-**Trailing 7 years** ($10,000 initial):
+**Trailing 4 years on full SP500** ($10,000 initial, 2022-04 → 2026-04):
 
-| | End value | CAGR | Sharpe | Max DD |
+| Config | Sharpe | CAGR | Max DD | $10k became |
 |---|---:|---:|---:|---:|
-| **Momentum Top-5** | **$80,665** | **+34.7%** | **+1.030** | −34.9% |
-| Equal-weight 20 B&H | $61,994 | +29.8% | +0.961 | −43.4% |
-| SP500 B&H | $22,933 | +12.6% | +0.583 | −33.9% |
+| **SP500 momentum top-5** | **+1.635** | **+96.2%** | −46.0% | **$147,948** |
+| **SP500 momentum top-10** | **+1.345** | **+60.3%** | −41.0% | **$66,045** |
+| SP500 momentum top-20 | +1.291 | +48.7% | −34.3% | $48,837 |
+| SP500 momentum top-50 | +0.903 | +24.1% | −29.3% | $23,713 |
+| SP500 Index B&H | +0.491 | +9.7% | −21.9% | $14,464 |
 
-**First strategy class in the entire project to beat buy-and-hold on
-equities.** Beats both benchmarks on Sharpe AND CAGR, with shallower
-drawdown than equal-weight B&H. The single most-replicated anomaly in
-the academic finance literature, and it worked here on the simplest
-possible implementation.
+**Every configuration crushes the index.** Top-10 is the production
+default — best balance of Sharpe and diversification.
 
-Multi-seed validation (5 seeds × 12 windows): momentum's avg CAGR is
-+47.4% vs EW-20 B&H's +29.4%. Momentum wins 47% of 6-month windows on
-Sharpe — not dominant in every sub-period, but the compounding over
-longer horizons makes the difference.
+**Regime-robust**: tested across 5 sub-windows including the 2022 bear
+market. Momentum made +2.7% while SP lost −20.2% in 2022 — a +22.9pp
+gap. The strategy rotated into energy and defense names. See
+[`scripts/data/full_sp500_momentum.parquet`](./scripts/data/full_sp500_momentum.parquet).
+
+### 1b. Multi-factor composite (momentum + value + quality + news filter)
+
+[`signals/model/multifactor.py`](./signals/model/multifactor.py) |
+[`signals/model/news_filter.py`](./signals/model/news_filter.py) |
+[`scripts/MULTIFACTOR_RESULTS.md`](./scripts/MULTIFACTOR_RESULTS.md)
+
+Blends three factors into a composite percentile-rank score:
+
+```
+score = 40% × momentum_rank + 30% × value_rank (inverse P/E) + 30% × quality_rank (ROE)
+```
+
+Then excludes the top-25% highest-volatility stocks before picking the
+top 10. After ranking, a **news sentiment filter** scans recent yfinance
+headlines for geopolitical, regulatory, one-off, and sector-shock risks
+— flagged tickers get weight reduced (CAUTION) or removed (SKIP).
+
+The result is a **diversified** top-10 across 7+ sectors instead of
+pure momentum's concentration in semiconductors. Lower expected CAGR
+but much less sector risk.
 
 ### 2. Post-Earnings Announcement Drift (PEAD)
 
@@ -244,27 +269,49 @@ Alpaca data API if you have credentials set up — see
 
 ### Run the daily automation
 
+The system supports **multiple parallel Alpaca accounts** for A/B testing
+strategies. Add prefixed keys to `.env` for each account:
+
 ```bash
-# Generate signals + place paper trades on Alpaca:
-signals auto trade --broker alpaca
+# .env — three parallel paper accounts
+ALPACA_API_KEY=PK...              # Account 1: momentum
+ALPACA_SECRET_KEY=...
+ALPACA_MULTIFACTOR_KEY=PK...      # Account 2: multi-factor
+ALPACA_MULTIFACTOR_SECRET=...
+ALPACA_BASELINE_KEY=PK...         # Account 3: SPY B&H baseline
+ALPACA_BASELINE_SECRET=...
+```
 
-# Or use the local paper broker (no API keys needed):
-signals auto trade
+```bash
+# Trade a specific account:
+signals auto trade --account momentum
+signals auto trade --account multifactor
 
-# View positions, performance, signal history:
-signals auto positions --broker alpaca
-signals auto performance --broker alpaca
+# Side-by-side performance of all accounts:
+signals auto performance --account all
+
+# Positions for a specific account:
+signals auto positions --account momentum
+
+# Account health check:
+signals auto config
 signals auto history LITE --days 30
 ```
 
-### Automate (optional cron job)
+### Automate (cron — runs unattended)
 
 ```bash
-# Add to crontab — runs Mon-Fri at 4:35pm ET:
+# Two cron entries, one per algo account (Mon-Fri 4:35pm ET):
 crontab -e
-# Paste this line:
-35 20 * * 1-5 cd /path/to/signals && .venv/bin/signals auto trade --broker alpaca >> data/auto.log 2>&1
+# Paste:
+35 20 * * 1-5 cd /path/to/signals && .venv/bin/signals auto trade --account momentum >> data/momentum.log 2>&1
+36 20 * * 1-5 cd /path/to/signals && .venv/bin/signals auto trade --account multifactor >> data/multifactor.log 2>&1
 ```
+
+**Monthly rebalancing is automatic.** The system tracks the last
+rebalance date in SQLite and only submits orders every 21 trading days.
+On the other ~20 days it generates signals and records equity but does
+not trade. Baseline (SPY B&H) has no cron entry — it just sits.
 
 ## Quick start — momentum strategy (Python API)
 
@@ -293,7 +340,7 @@ print(f"Final: ${equity.iloc[-1]:,.0f}")  # ~$66k from $10k
 pytest --cov=signals
 ```
 
-**254 tests** across 26 test modules covering all model classes
+**276 tests** across 28 test modules covering all model classes
 (momentum, TSMOM, PEAD, pairs, Markov sunset, hybrid, trend, boost,
 ensemble, composite, HMM, HOMC, lookahead regression, sunset warnings,
 absolute encoder, rule-based signals) plus engine, portfolio, metrics,
@@ -328,24 +375,31 @@ rounds of corrections fixed annualization, samplers, and DSR. A
 4-asset portfolio experiment showed diversification math works but
 depends on BTC's forward return. The Markov approach was conclusively
 sunset after failing 100/100 ticker-model tests on equities. The
-project then pivoted to testing signal classes the academic literature
-identifies as persistent: cross-sectional momentum (Jegadeesh-Titman
-1993), time-series momentum (Moskowitz et al. 2012), and post-earnings
-announcement drift. Three of three worked. The reusable output is
-both the strategies and the adversarial-review methodology toolkit
-(non-overlap sampler, multi-seed evaluator, DSR, bootstrap CIs,
-permutation tests, cost sensitivity, regime ablation).
+project pivoted to academically-grounded signal classes: cross-
+sectional momentum (Jegadeesh-Titman 1993), multi-factor composite
+scoring (momentum + value + quality with news filtering), time-series
+momentum (Moskowitz et al. 2012), and post-earnings announcement
+drift. Three of four worked; pairs trading didn't. The momentum
+strategy was then scaled to the full 498-stock SP500 universe via the
+Alpaca data API, producing Sharpe 1.3+ that was regime-robust across
+bull and bear markets. A multi-factor variant added value (P/E) and
+quality (ROE) filters plus a headline-scanning news filter for event
+risk. Three parallel Alpaca paper trading accounts now run automated
+monthly rebalancing — pure momentum, multi-factor, and SPY B&H
+baseline — for live forward testing. 276 tests, 28 test modules.
 
 ## Project layout
 
 ```
 signals/
 ├── model/
-│   ├── momentum.py        # Cross-sectional momentum (WINNER)
+│   ├── momentum.py        # Cross-sectional momentum (PRODUCTION — account 1)
+│   ├── multifactor.py     # Multi-factor composite (PRODUCTION — account 2)
+│   ├── news_filter.py     # Post-signal headline risk scanner
 │   ├── tsmom.py           # Time-series momentum multi-asset
 │   ├── pead.py            # Post-earnings announcement drift
 │   ├── pairs.py           # Statistical arbitrage / pairs trading
-│   ├── hybrid.py          # HybridRegimeModel (sunset internals)
+│   ├── hybrid.py          # HybridRegimeModel (sunset)
 │   ├── composite.py       # CompositeMarkovChain (sunset)
 │   ├── homc.py            # HigherOrderMarkovChain (sunset)
 │   ├── hmm.py             # HiddenMarkovModel (sunset)
@@ -355,6 +409,12 @@ signals/
 │   ├── signals.py         # SignalGenerator
 │   ├── rule_signals.py    # RuleBasedSignalGenerator
 │   └── states.py          # State encoders (quantile, absolute, composite)
+├── automation/
+│   ├── signal_store.py    # SQLite signal persistence
+│   ├── cash_overlay.py    # Multi-model portfolio blender
+│   ├── insights_engine.py # Daily runner: data → models → signals → report
+│   ├── paper_runner.py    # Alpaca execution + monthly rebalance gating
+│   └── cli.py             # `signals auto` subcommands
 ├── data/
 │   ├── earnings.py        # Earnings data fetcher (yfinance + YoY fallback)
 │   └── ...                # DataSource, DataPipeline, DataStore
@@ -364,21 +424,21 @@ signals/
 │   ├── metrics.py         # Sharpe, DSR, CAGR, drawdown
 │   ├── risk_free.py       # historical_usd_rate helper
 │   └── vol_target.py      # Vol-targeting overlay
-├── broker/                # PaperBroker, AlpacaBroker (dry-run default)
-└── cli.py                 # Typer CLI
+├── broker/
+│   ├── paper.py           # In-memory PaperBroker
+│   ├── alpaca.py          # Alpaca Trading API (paper + live)
+│   └── paper_trade_log.py # Trade logging
+└── cli.py                 # Typer CLI entry point
 
 scripts/
-├── cross_sectional_momentum_eval.py  # WINNER — beats B&H on equities
-├── tsmom_multi_asset_eval.py         # Defensive overlay — best Sharpe/DD ratio
-├── pead_eval.py                      # Earnings drift — event-driven alpha
-├── pairs_trading_eval.py             # Stat arb — didn't work on mega-caps
-├── multi_stock_algo_eval.py          # 20-stock × 5-model comprehensive test
-├── broad_comparison.py               # All strategies in one table
-├── trailing_7y_view.py               # 7-year single-window comparison
-├── drawdown_tolerant.py              # BTC-heavy allocation analysis
-├── portfolio_vs_sp_bh.py             # 4-asset basket vs SP head-to-head
-├── risk_parity_4asset.py             # BTC/SP/TLT/GLD basket
-├── explore_improvements.py           # 144-config parameter search
+├── cross_sectional_momentum_eval.py  # Full SP500 momentum evaluation
+├── multifactor_eval.py               # Multi-factor composite evaluation
+├── universe_analysis.py              # Optimal universe size + sector analysis
+├── tsmom_multi_asset_eval.py         # 8-asset trend-following
+├── pead_eval.py                      # Earnings drift
+├── pairs_trading_eval.py             # Stat arb (didn't work)
+├── multi_stock_algo_eval.py          # 20-stock × 5-model Markov failure test
+├── automation_demo.py                # End-to-end automation demo
 ├── _window_sampler.py                # Shared non-overlap sampler
 └── data/                             # Persisted results (parquet + markdown)
 ```
