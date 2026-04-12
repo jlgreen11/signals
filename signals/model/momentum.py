@@ -135,8 +135,14 @@ class CrossSectionalMomentum:
         Transaction costs: commission_bps + slippage_bps applied to the
         absolute dollar value of each trade (buy or sell).
         """
-        start_ts = pd.Timestamp(start, tz="UTC")
-        end_ts = pd.Timestamp(end, tz="UTC")
+        if isinstance(start, pd.Timestamp) and start.tzinfo is not None:
+            start_ts = start
+        else:
+            start_ts = pd.Timestamp(start, tz="UTC")
+        if isinstance(end, pd.Timestamp) and end.tzinfo is not None:
+            end_ts = end
+        else:
+            end_ts = pd.Timestamp(end, tz="UTC")
 
         # Build a common date index from the union of all stocks
         all_dates: set[pd.Timestamp] = set()
