@@ -43,30 +43,50 @@ and [`scripts/RISK_PARITY_4ASSET_RESULTS.md`](./scripts/RISK_PARITY_4ASSET_RESUL
 Daily rebalance. Inner-joined on the US equity calendar (~252 bars/year)
 so weekend BTC bars don't desync the portfolio.
 
-**Measured multi-seed performance** (10 pre-registered seeds × 16
-non-overlapping 6-month windows, correctly annualized at 252/yr for
-the equity shared calendar, risk-free rate ≈ 2.3%):
+**Trailing 7-year actuals** (2019-04-01 → 2026-04-01, $10,000 initial):
 
-| | avg Sharpe | stderr | min seed | max seed |
+| Strategy | $10k became | CAGR | Sharpe | Max DD |
 |---|---:|---:|---:|---:|
-| **4-asset equal-weight** | **+1.366** | 0.126 | +0.646 | +1.677 |
-| 4-asset inverse-vol (21d) | +1.118 | 0.036 | +0.837 | +1.284 |
-| 4-asset inverse-vol (63d) | +1.040 | 0.063 | +0.762 | +1.362 |
-| BTC alone (hybrid, 365/yr) | +1.188 | 0.025 | +1.152 | +1.239 |
+| **4-asset equal-weight** | **$38,646** | **+21.3%** | **+1.106** | −39.6% |
+| BTC_HYBRID_PRODUCTION | $156,643 | +48.1% | +0.979 | −75.8% |
+| GLD buy-and-hold | $36,026 | +20.1% | +1.009 | −22.0% |
+| SP500 buy-and-hold | $22,933 | +12.6% | +0.583 | −33.9% |
+| 60/40 SP/TLT (classic pension) | $15,154 | +6.1% | +0.352 | −28.2% |
+
+See [`scripts/TRAILING_7Y_VIEW.md`](./scripts/TRAILING_7Y_VIEW.md) for
+full detail including quarterly progression and all strategy variants.
+BTC hybrid produced astronomical CAGR (+48.1%) but with a −75.8%
+drawdown that most investors can't stomach. The 4-asset basket produces
+a more investable **+21.3% CAGR** — roughly double SP's +12.6% — at a
+Sharpe almost 2× SP's (1.106 vs 0.583).
+
+**Multi-seed validation** (10 pre-registered seeds × 16 non-overlapping
+6-month windows, 252/yr equity-calendar annualization, rf ≈ 2.3%):
+
+| | avg Sharpe | avg CAGR | stderr | min seed | max seed |
+|---|---:|---:|---:|---:|---:|
+| **4-asset equal-weight** | **+1.366** | **+22.8%** | 0.126 | +0.646 | +1.677 |
+| 4-asset inverse-vol (21d) | +1.118 | +15.3% | 0.036 | +0.837 | +1.284 |
+| 4-asset inverse-vol (63d) | +1.040 | +13.8% | 0.063 | +0.762 | +1.362 |
+| BTC alone (hybrid, 365/yr) | +1.188 | +32.9% | 0.025 | +1.152 | +1.239 |
 
 Equal weighting beats inverse-vol because inverse-vol down-weights
-BTC, the highest-vol and highest-return leg. The +0.178 Sharpe
-improvement over BTC-alone is structural — it comes from the
-portfolio-math benefit of combining assets with low average pairwise
-correlation, not from any new alpha signal.
+BTC, the highest-vol and highest-return leg.
 
-**Stress behavior**: see [`scripts/data/portfolio_trace_180d.md`](./scripts/data/portfolio_trace_180d.md)
-for a day-by-day trace of the portfolio through its worst-case window
-(2018-02-07 → 2018-10-23, the BTC 2018 crash into crypto winter):
+**Stress behavior** — worst-case 180-day window (2018-02-07 →
+2018-10-23, BTC crypto-winter crash; see
+[`scripts/data/portfolio_trace_180d.md`](./scripts/data/portfolio_trace_180d.md)):
 
-- BTC leg alone over that window: **−52%**
+- BTC leg alone: **−52%**
 - Equal-weight 4-asset portfolio: **−17%** — 35 pp of drawdown blunted
   by the diversification math.
+
+**Drawdown-tolerant alternatives**: for investors who can stomach large
+drawdowns in exchange for maximum terminal wealth, see
+[`scripts/DRAWDOWN_TOLERANT.md`](./scripts/DRAWDOWN_TOLERANT.md).
+Headline: 80/20 BTC/GLD turned $10k into **$151,991** over 7 years
+(CAGR +47.5%, MDD −67.9%). Pure BTC B&H: $163,722 (CAGR +49.1%,
+MDD −76.6%).
 
 ### 2. BTC alone, if you only want one asset
 
@@ -83,20 +103,19 @@ routing_strategy     = "vol"
 periods_per_year     = 365  (BTC trades 365 days/year)
 ```
 
-Multi-seed avg Sharpe **+1.188 ± 0.025** on 10 seeds × 16
-non-overlapping 6-month windows, stderr 0.025 (the tightest reading in
-the project). Stable across seeds. Beats a pure vol-filter baseline
-(~1.15) by ~0.04 and the legacy q=0.70 config by ~0.30.
+**Trailing 7 years**: $10k → **$156,643** (CAGR **+48.1%**, Sharpe
++0.979, MDD −75.8%). Multi-seed avg Sharpe **+1.188 ± 0.025** on 10
+seeds × 16 non-overlapping 6-month windows, stderr 0.025 (the
+tightest reading in the project).
 
 ### 3. ^GSPC (S&P 500) alone
 
-**Use buy & hold.** No active strategy in this project beats B&H on
-S&P 500 across 4 different model classes tested (composite, HOMC,
-trend filters, golden cross). See
+**Use buy & hold.** Trailing 7 years: $10k → **$22,933** (CAGR
+**+12.6%**, Sharpe +0.583, MDD −33.9%). No active strategy in this
+project beats B&H on S&P 500 across 4 different model classes tested
+(composite, HOMC, trend filters, golden cross). See
 [`scripts/HOMC_TIER0E_BTC_SP500.md`](./scripts/HOMC_TIER0E_BTC_SP500.md)
 and [`scripts/SP500_TREND_AND_HOMC_MEMORY.md`](./scripts/SP500_TREND_AND_HOMC_MEMORY.md).
-The Markov-chain backbone is the wrong tool for a secular-uptrend
-equity index.
 
 ## ⚠️ Markov model sunset
 
