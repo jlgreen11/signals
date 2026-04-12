@@ -6,15 +6,16 @@
 [![Tests](https://img.shields.io/badge/tests-188%20passing-brightgreen.svg)](./tests)
 
 A multi-asset portfolio research project that started out chasing a
-Markov-chain trading edge on Bitcoin and ended — after five rounds of
-adversarial review — recommending a **4-asset equal-weight risk-parity
-basket**. The Markov code still runs (it powers the BTC leg of the
-basket) but it is **sunset** as a standalone strategy: repeated
-controlled experiments could not show that any Markov variant extracts
-directional insight beyond what a one-line volatility filter provides.
+Markov-chain trading edge on Bitcoin and ended — after nine rounds of
+adversarial review — with an honest finding: **the historical backtest
+numbers are dominated by BTC's exceptional 2019–2024 bull run, which
+is not a reasonable forward expectation.** The Markov code is sunset.
+The portfolio math is real but its headline CAGR is unreliable as a
+forward forecast because it overfits to a once-in-a-generation crypto
+appreciation.
 
-The current recommendation is not a Markov-chain strategy. The current
-recommendation is portfolio math.
+Read the "Forward expectations" section below before making any
+allocation decision based on the trailing numbers.
 
 ## ⚠ Disclaimer
 
@@ -55,23 +56,62 @@ so weekend BTC bars don't desync the portfolio.
 
 See [`scripts/TRAILING_7Y_VIEW.md`](./scripts/TRAILING_7Y_VIEW.md) for
 full detail including quarterly progression and all strategy variants.
-BTC hybrid produced astronomical CAGR (+48.1%) but with a −75.8%
-drawdown that most investors can't stomach. The 4-asset basket produces
-a more investable **+21.3% CAGR** — roughly double SP's +12.6% — at a
-Sharpe almost 2× SP's (1.106 vs 0.583).
+BTC hybrid produced astronomical CAGR (+48.1%) but **this number is a
+backward-looking artifact of BTC's 2019–2024 bull run**. See "Forward
+expectations" below for why you should not extrapolate it.
 
 **Multi-seed validation** (10 pre-registered seeds × 16 non-overlapping
 6-month windows, 252/yr equity-calendar annualization, rf ≈ 2.3%):
 
-| | avg Sharpe | avg CAGR | stderr | min seed | max seed |
-|---|---:|---:|---:|---:|---:|
-| **4-asset equal-weight** | **+1.366** | **+22.8%** | 0.126 | +0.646 | +1.677 |
-| 4-asset inverse-vol (21d) | +1.118 | +15.3% | 0.036 | +0.837 | +1.284 |
-| 4-asset inverse-vol (63d) | +1.040 | +13.8% | 0.063 | +0.762 | +1.362 |
-| BTC alone (hybrid, 365/yr) | +1.188 | +32.9% | 0.025 | +1.152 | +1.239 |
+| | avg Sharpe | trailing CAGR | stderr |
+|---|---:|---:|---:|
+| **4-asset equal-weight** | **+1.366** | +22.8%† | 0.126 |
+| 4-asset inverse-vol (21d) | +1.118 | +15.3%† | 0.036 |
+| BTC alone (hybrid, 365/yr) | +1.188 | +32.9%† | 0.025 |
 
-Equal weighting beats inverse-vol because inverse-vol down-weights
-BTC, the highest-vol and highest-return leg.
+†**Trailing CAGR is NOT a forward forecast.** See the forward-
+expectations table below.
+
+### Forward expectations — the honest math
+
+The trailing 7-year numbers are dominated by BTC's ~$5k → ~$80k
+appreciation (roughly 48% CAGR). That run was driven by COVID monetary
+expansion, crypto mania, ETF approval, and halving-cycle dynamics that
+are unlikely to repeat at the same magnitude. **There is no
+fundamental reason to expect BTC to compound at 48% per year going
+forward.** Most serious forward estimates land in the 5–20% range;
+bear cases include 0% or negative.
+
+Here's what the 4-asset basket's CAGR looks like under different BTC
+forward assumptions, holding the other legs at long-run consensus:
+
+| BTC forward CAGR | SP CAGR | TLT CAGR | GLD CAGR | **4-asset basket CAGR** | vs SP alone |
+|---:|---:|---:|---:|---:|---:|
+| **0%** (bear) | 8% | 3% | 5% | **4.0%** | **−4.0%** (loses to SP) |
+| **10%** | 8% | 3% | 5% | **6.5%** | **−1.5%** (loses to SP) |
+| **15%** | 8% | 3% | 5% | **7.8%** | **−0.2%** (roughly ties SP) |
+| **20%** | 8% | 3% | 5% | **9.0%** | **+1.0%** (barely beats SP) |
+| **30%** | 8% | 3% | 5% | **11.5%** | **+3.5%** |
+| **48%** (trailing) | 8% | 3% | 5% | **16.0%** | **+8.0%** |
+
+**The 4-asset basket only beats SP if BTC's forward CAGR exceeds
+~15%.** Below that threshold the TLT and GLD legs drag the basket
+below pure SP. The trailing headline of "+21.3% basket CAGR" requires
+BTC to continue compounding near its historical rate, which is an
+aggressive assumption.
+
+**What the basket DOES provide regardless of BTC's forward**: lower
+correlation to any single asset class, drawdown blunting (the stress
+test showed −17% vs BTC's −52%), and ruin diversification (if any one
+leg goes to zero you lose only 25%). These are real structural
+benefits but they are **risk reduction, not return enhancement**, under
+conservative BTC assumptions.
+
+**Honest bottom line**: if you believe BTC's forward CAGR is <15%, the
+4-asset basket underperforms SP B&H and the right move is to hold SP
+directly. If you believe BTC's forward CAGR is >20%, the basket adds
+meaningful return above SP. If you're uncertain, the basket is a
+hedge on being wrong in either direction.
 
 **Stress behavior** — worst-case 180-day window (2018-02-07 →
 2018-10-23, BTC crypto-winter crash; see
@@ -79,14 +119,14 @@ BTC, the highest-vol and highest-return leg.
 
 - BTC leg alone: **−52%**
 - Equal-weight 4-asset portfolio: **−17%** — 35 pp of drawdown blunted
-  by the diversification math.
+  by the diversification math. This benefit is real regardless of BTC's
+  forward CAGR.
 
-**Drawdown-tolerant alternatives**: for investors who can stomach large
-drawdowns in exchange for maximum terminal wealth, see
-[`scripts/DRAWDOWN_TOLERANT.md`](./scripts/DRAWDOWN_TOLERANT.md).
-Headline: 80/20 BTC/GLD turned $10k into **$151,991** over 7 years
-(CAGR +47.5%, MDD −67.9%). Pure BTC B&H: $163,722 (CAGR +49.1%,
-MDD −76.6%).
+**Historical trailing numbers** (for the record, not as a forecast):
+see [`scripts/TRAILING_7Y_VIEW.md`](./scripts/TRAILING_7Y_VIEW.md)
+and [`scripts/DRAWDOWN_TOLERANT.md`](./scripts/DRAWDOWN_TOLERANT.md)
+for the full tables. Every number there is backward-looking through a
+historically exceptional BTC appreciation.
 
 ### 2. BTC alone, if you only want one asset
 
@@ -103,10 +143,11 @@ routing_strategy     = "vol"
 periods_per_year     = 365  (BTC trades 365 days/year)
 ```
 
-**Trailing 7 years**: $10k → **$156,643** (CAGR **+48.1%**, Sharpe
-+0.979, MDD −75.8%). Multi-seed avg Sharpe **+1.188 ± 0.025** on 10
-seeds × 16 non-overlapping 6-month windows, stderr 0.025 (the
-tightest reading in the project).
+Trailing 7 years: $10k → $156,643 (CAGR +48.1% — **this is a
+backward-looking number driven by BTC's 2019–2024 bull run; do not
+use as a forward estimate**). Multi-seed avg Sharpe +1.188 ± 0.025
+on 10 seeds × 16 non-overlapping 6-month windows. See the
+forward-expectations table above for honest projections.
 
 ### 3. ^GSPC (S&P 500) alone
 
