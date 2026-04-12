@@ -9,6 +9,8 @@ import pandas as pd
 from signals.automation.cash_overlay import CashOverlay
 from signals.automation.signal_store import SignalStore
 from signals.model.momentum import CrossSectionalMomentum
+from signals.model.multifactor import MultiFactor
+from signals.model.news_filter import NewsFilter
 from signals.model.pead import PEADStrategy
 from signals.model.tsmom import TimeSeriesMomentum
 from signals.utils.logging import get_logger
@@ -53,6 +55,10 @@ class InsightsEngine:
         momentum_model: CrossSectionalMomentum | None = None,
         tsmom_model: TimeSeriesMomentum | None = None,
         pead_model: PEADStrategy | None = None,
+        use_multifactor: bool = False,
+        multifactor_model: MultiFactor | None = None,
+        fundamentals: pd.DataFrame | None = None,
+        news_filter: NewsFilter | None = None,
     ) -> None:
         self.signal_store = signal_store
         self.cash_overlay = cash_overlay
@@ -67,6 +73,15 @@ class InsightsEngine:
         )
         self.pead_model = pead_model or PEADStrategy(
             surprise_threshold_pct=5.0, hold_days=60, max_positions=5,
+        )
+        self.use_multifactor = use_multifactor
+        self.multifactor_model = multifactor_model or MultiFactor(
+            momentum_weight=0.40, value_weight=0.30, quality_weight=0.30,
+            n_long=5, vol_filter_quantile=0.75,
+        )
+        self.fundamentals = fundamentals if fundamentals is not None else pd.DataFrame()
+        self.news_filter = news_filter or NewsFilter(
+            lookback_days=7, max_risk_score=3,
         )
         self._last_report: dict | None = None
 
@@ -104,7 +119,7 @@ class InsightsEngine:
     def run_momentum(
         self, prices_dict: dict[str, pd.DataFrame]
     ) -> dict[str, float]:
-        """Run cross-sectional momentum and return target weights."""
+        """Run cross-sectional momentum (or multifactor) and return target weights."""
         if not prices_dict:
             return {}
         # Use the latest date across all tickers
@@ -115,7 +130,20 @@ class InsightsEngine:
         if not latest_dates:
             return {}
         as_of = max(latest_dates)
-        weights = self.momentum_model.rank(prices_dict, as_of_date=as_of)
+
+        if self.use_multifactor:
+            # Load fundamentals on first use if not provided
+            if self.fundamentals.empty:
+                log.info("Fetching fundamentals for multifactor model...")
+                self.fundamentals = self.multifactor_model.fetch_fundamentals(
+                    list(prices_dict.keys())
+                )
+            weights = self.multifactor_model.rank(
+                prices_dict, self.fundamentals, as_of_date=as_of,
+            )
+        else:
+            weights = self.momentum_model.rank(prices_dict, as_of_date=as_of)
+
         return {t: w for t, w in weights.items() if w > 0}
 
     def run_tsmom(
@@ -182,6 +210,23 @@ class InsightsEngine:
 
         # Step 3: Run models
         momentum_targets = self.run_momentum(momentum_prices)
+
+        # Step 3b: Apply news filter to momentum/multifactor picks
+        news_results: list[dict] = []
+        if momentum_targets:
+            try:
+                filtered_targets = self.news_filter.filter_signals(momentum_targets)
+                # Collect news check results for the report
+                for ticker in momentum_targets:
+                    if momentum_targets[ticker] > 0:
+                        try:
+                            news_results.append(self.news_filter.check_ticker(ticker))
+                        except Exception as e:
+                            log.warning("News check failed for %s: %s", ticker, e)
+                momentum_targets = filtered_targets
+            except Exception as e:
+                log.warning("News filter failed, using unfiltered targets: %s", e)
+
         tsmom_targets = self.run_tsmom(tsmom_prices)
         pead_targets = self.run_pead(momentum_prices, earnings_df)
 
@@ -257,6 +302,8 @@ class InsightsEngine:
                 v for k, v in blended.items() if k != "_CASH"
             ),
             "cash": blended.get("_CASH", 0.0),
+            "use_multifactor": self.use_multifactor,
+            "news_filter_results": news_results,
         }
 
         report["report_text"] = self.generate_report(
@@ -280,8 +327,9 @@ class InsightsEngine:
         ]
 
         # Momentum section
+        model_label = "MultiFactor" if self.use_multifactor else "Momentum"
         mom = model_signals.get("momentum", {})
-        lines.append(f"[Momentum] Top {len(mom)} stocks (50% model weight):")
+        lines.append(f"[{model_label}] Top {len(mom)} stocks (50% model weight):")
         if mom:
             for ticker in sorted(mom, key=mom.get, reverse=True):
                 lines.append(f"  {ticker:8s}  weight={mom[ticker]:.2f}  -> BUY")
