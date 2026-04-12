@@ -147,7 +147,7 @@ def main() -> None:
     sp500_df = _fetch_sp500_list()
     all_tickers = sp500_df["Symbol"].tolist()
     sector_col = "GICS Sector" if "GICS Sector" in sp500_df.columns else "Sector"
-    sector_map = dict(zip(sp500_df["Symbol"], sp500_df[sector_col]))
+    sector_map = dict(zip(sp500_df["Symbol"], sp500_df[sector_col], strict=False))
     print(f"  {len(all_tickers)} SP500 tickers")
     print(f"  Sectors: {sp500_df[sector_col].nunique()}")
 

@@ -261,7 +261,7 @@ class TestInsightsEngine:
 # ---------------------------------------------------------------------------
 
 class TestPaperTradeRunner:
-    def test_execute_daily(self, signal_store, sample_prices):
+    def test_execute_daily(self, tmp_path, signal_store, sample_prices):
         data_store = FakeDataStore(sample_prices)
         overlay = CashOverlay(total_capital=100_000)
         engine = InsightsEngine(
@@ -272,12 +272,12 @@ class TestPaperTradeRunner:
                       "META", "TSLA", "AVGO", "JPM", "UNH"],
             tsmom_tickers=["SPY", "EFA", "TLT", "GLD", "BTC-USD"],
         )
-        runner = PaperTradeRunner(engine=engine, initial_capital=100_000)
+        runner = PaperTradeRunner(engine=engine, initial_capital=100_000, db_path=tmp_path / "paper_test.db")
         result = runner.execute_daily()
         assert "equity" in result
         assert result["equity"] > 0
 
-    def test_positions_update_after_execution(self, signal_store, sample_prices):
+    def test_positions_update_after_execution(self, tmp_path, signal_store, sample_prices):
         data_store = FakeDataStore(sample_prices)
         overlay = CashOverlay(total_capital=100_000)
         engine = InsightsEngine(
@@ -288,13 +288,13 @@ class TestPaperTradeRunner:
                       "META", "TSLA", "AVGO", "JPM", "UNH"],
             tsmom_tickers=["SPY", "EFA", "TLT", "GLD", "BTC-USD"],
         )
-        runner = PaperTradeRunner(engine=engine, initial_capital=100_000)
+        runner = PaperTradeRunner(engine=engine, initial_capital=100_000, db_path=tmp_path / "paper_test.db")
         runner.execute_daily()
         positions = runner.get_positions()
         # Should have some positions after execution
         assert len(positions) > 0
 
-    def test_performance_computed(self, signal_store, sample_prices):
+    def test_performance_computed(self, tmp_path, signal_store, sample_prices):
         data_store = FakeDataStore(sample_prices)
         overlay = CashOverlay(total_capital=100_000)
         engine = InsightsEngine(
@@ -304,13 +304,13 @@ class TestPaperTradeRunner:
             tickers=["AAPL", "MSFT"],
             tsmom_tickers=["SPY"],
         )
-        runner = PaperTradeRunner(engine=engine, initial_capital=100_000)
+        runner = PaperTradeRunner(engine=engine, initial_capital=100_000, db_path=tmp_path / "paper_test.db")
         runner.execute_daily()
         perf = runner.get_performance()
         assert "total_return" in perf
         assert perf["n_days"] == 1
 
-    def test_trade_log_populated(self, signal_store, sample_prices):
+    def test_trade_log_populated(self, tmp_path, signal_store, sample_prices):
         data_store = FakeDataStore(sample_prices)
         overlay = CashOverlay(total_capital=100_000)
         engine = InsightsEngine(
@@ -321,13 +321,13 @@ class TestPaperTradeRunner:
                       "META", "TSLA", "AVGO", "JPM", "UNH"],
             tsmom_tickers=["SPY", "EFA", "TLT", "GLD", "BTC-USD"],
         )
-        runner = PaperTradeRunner(engine=engine, initial_capital=100_000)
+        runner = PaperTradeRunner(engine=engine, initial_capital=100_000, db_path=tmp_path / "paper_test.db")
         runner.execute_daily()
         log = runner.get_trade_log()
         # Should have trades
         assert len(log) > 0
 
-    def test_empty_performance_before_trading(self, signal_store, sample_prices):
+    def test_empty_performance_before_trading(self, tmp_path, signal_store, sample_prices):
         data_store = FakeDataStore(sample_prices)
         overlay = CashOverlay(total_capital=100_000)
         engine = InsightsEngine(
@@ -337,7 +337,7 @@ class TestPaperTradeRunner:
             tickers=["AAPL"],
             tsmom_tickers=["SPY"],
         )
-        runner = PaperTradeRunner(engine=engine, initial_capital=100_000)
+        runner = PaperTradeRunner(engine=engine, initial_capital=100_000, db_path=tmp_path / "paper_test.db")
         perf = runner.get_performance()
         assert perf["total_return"] == 0.0
         assert perf["n_days"] == 0

@@ -1,8 +1,17 @@
-"""Paper trade runner: connects InsightsEngine to the PaperBroker for execution."""
+"""Paper trade runner: connects InsightsEngine to the PaperBroker for execution.
+
+Persistence: positions, cash, trade log, and daily equity are stored in
+SQLite (same database as SignalStore) so they survive between CLI calls.
+On init, the runner loads any previously-saved state; on every execute_daily
+it saves the new state. This means `signals auto trade` → `signals auto
+positions` works across separate invocations.
+"""
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pandas as pd
 
@@ -17,8 +26,9 @@ log = get_logger(__name__)
 class PaperTradeRunner:
     """Executes blended signals as paper trades and tracks P&L.
 
-    Uses signals/broker/paper.py PaperBroker for in-memory execution.
-    All trades are logged to an internal trade log for later analysis.
+    Uses signals/broker/paper.py PaperBroker for execution logic.
+    Positions and cash are PERSISTED to SQLite between CLI calls via
+    the _save_state / _load_state methods.
     """
 
     def __init__(
@@ -26,6 +36,7 @@ class PaperTradeRunner:
         engine: InsightsEngine,
         initial_capital: float = 100_000.0,
         broker: str = "paper",
+        db_path: str | Path | None = None,
     ) -> None:
         self.engine = engine
         self.initial_capital = initial_capital
@@ -33,11 +44,158 @@ class PaperTradeRunner:
         self._daily_equity: list[dict] = []
         self._prices: dict[str, float] = {}
 
+        # SQLite persistence path (default: same dir as SignalStore)
+        if db_path is None:
+            from signals.config import SETTINGS
+            db_path = SETTINGS.data.dir / "signals.db"
+        self._db_path = str(db_path)
+        self._init_db()
+
         # Create the paper broker with a quote function that uses cached prices
         self._broker = PaperBroker(
             initial_cash=initial_capital,
             quote_fn=self._get_price,
         )
+
+        # Load previously saved state (if any)
+        self._load_state()
+
+    # ------------------------------------------------------------------
+    # SQLite persistence
+    # ------------------------------------------------------------------
+
+    def _init_db(self) -> None:
+        """Create persistence tables if they don't exist."""
+        conn = sqlite3.connect(self._db_path)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_positions (
+                ticker TEXT PRIMARY KEY,
+                shares REAL NOT NULL,
+                avg_price REAL NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                action TEXT NOT NULL,
+                shares REAL NOT NULL,
+                price REAL NOT NULL,
+                notional REAL NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_equity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                date TEXT NOT NULL,
+                equity REAL NOT NULL,
+                cash REAL NOT NULL,
+                n_positions INTEGER NOT NULL,
+                n_trades INTEGER NOT NULL
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+    def _save_state(self) -> None:
+        """Persist current positions and cash to SQLite."""
+        conn = sqlite3.connect(self._db_path)
+        # Clear and rewrite positions
+        conn.execute("DELETE FROM paper_positions")
+        for pos in self._broker.get_positions():
+            conn.execute(
+                "INSERT INTO paper_positions (ticker, shares, avg_price) VALUES (?, ?, ?)",
+                (pos.symbol, pos.qty, pos.avg_price),
+            )
+        # Save cash
+        conn.execute(
+            "INSERT OR REPLACE INTO paper_state (key, value) VALUES (?, ?)",
+            ("cash", str(self._broker.get_cash())),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO paper_state (key, value) VALUES (?, ?)",
+            ("initial_capital", str(self.initial_capital)),
+        )
+        conn.commit()
+        conn.close()
+
+    def _load_state(self) -> None:
+        """Load previously-saved positions and cash from SQLite."""
+        conn = sqlite3.connect(self._db_path)
+        try:
+            # Load cash
+            row = conn.execute(
+                "SELECT value FROM paper_state WHERE key = 'cash'"
+            ).fetchone()
+            if row:
+                self._broker._cash = float(row[0])
+
+            # Load positions
+            rows = conn.execute(
+                "SELECT ticker, shares, avg_price FROM paper_positions"
+            ).fetchall()
+            from signals.broker.base import Position
+            self._broker._positions = {}
+            for ticker, shares, avg_price in rows:
+                self._broker._positions[ticker] = Position(ticker, shares, avg_price)
+
+            # Load trade log
+            trade_rows = conn.execute(
+                "SELECT timestamp, ticker, action, shares, price, notional "
+                "FROM paper_trades ORDER BY id"
+            ).fetchall()
+            self._trade_log = [
+                {"timestamp": r[0], "ticker": r[1], "action": r[2],
+                 "shares": r[3], "price": r[4], "notional": r[5]}
+                for r in trade_rows
+            ]
+
+            # Load equity history
+            eq_rows = conn.execute(
+                "SELECT timestamp, date, equity, cash, n_positions, n_trades "
+                "FROM paper_equity ORDER BY id"
+            ).fetchall()
+            self._daily_equity = [
+                {"timestamp": r[0], "date": r[1], "equity": r[2],
+                 "cash": r[3], "n_positions": r[4], "n_trades": r[5]}
+                for r in eq_rows
+            ]
+        except Exception as e:
+            log.warning("Failed to load paper state: %s", e)
+        finally:
+            conn.close()
+
+    def _persist_trade(self, trade: dict) -> None:
+        """Append a single trade to the persistent log."""
+        conn = sqlite3.connect(self._db_path)
+        conn.execute(
+            "INSERT INTO paper_trades (timestamp, ticker, action, shares, price, notional) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (trade["timestamp"], trade["ticker"], trade["action"],
+             trade["shares"], trade["price"], trade["notional"]),
+        )
+        conn.commit()
+        conn.close()
+
+    def _persist_equity(self, record: dict) -> None:
+        """Append a daily equity record."""
+        conn = sqlite3.connect(self._db_path)
+        conn.execute(
+            "INSERT INTO paper_equity (timestamp, date, equity, cash, n_positions, n_trades) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (record["timestamp"], record["date"], record["equity"],
+             record["cash"], record["n_positions"], record["n_trades"]),
+        )
+        conn.commit()
+        conn.close()
 
     def _get_price(self, symbol: str) -> float:
         """Quote function for PaperBroker. Uses cached prices."""
@@ -129,19 +287,26 @@ class PaperTradeRunner:
             except ValueError as e:
                 log.warning("Order failed for %s: %s", ticker, e)
 
-        # Step 6: Log trades
+        # Step 6: Log trades (in-memory + persist to SQLite)
         self._trade_log.extend(executed_orders)
+        for trade in executed_orders:
+            self._persist_trade(trade)
 
-        # Step 7: Compute daily equity
+        # Step 7: Compute daily equity and persist
         equity = self._compute_equity()
-        self._daily_equity.append({
+        eq_record = {
             "timestamp": now.isoformat(),
             "date": now.strftime("%Y-%m-%d"),
             "equity": equity,
             "cash": self._broker.get_cash(),
             "n_positions": len(self._broker.get_positions()),
             "n_trades": len(executed_orders),
-        })
+        }
+        self._daily_equity.append(eq_record)
+        self._persist_equity(eq_record)
+
+        # Step 8: Save position state to SQLite (survives between CLI calls)
+        self._save_state()
 
         return {
             "timestamp": now.isoformat(),
