@@ -174,8 +174,22 @@ def run_backtest_with_optimizer(
 def main() -> None:
     """Run the comparison and print results."""
     print("Loading SP500 prices from DataStore...")
-    store = DataStore()
-    prices_dict = store.load_all()
+    from signals.config import SETTINGS
+    store = DataStore(SETTINGS.data.dir)
+
+    # Load all SP500 tickers
+    import pandas as pd
+    sp500 = pd.read_csv("/tmp/sp500_with_sectors.csv")
+    tickers = sp500["Symbol"].tolist()
+    prices_dict = {}
+    for t in tickers:
+        try:
+            df = store.load(t, "1d").sort_index()
+            df.index = df.index.normalize()
+            if len(df) >= 500:
+                prices_dict[t] = df
+        except Exception:
+            pass
     print(f"Loaded {len(prices_dict)} tickers")
 
     results: list[dict] = []
