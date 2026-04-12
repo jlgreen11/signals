@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+# Load .env before anything else touches os.environ
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 import typer
 from rich.console import Console
 from rich.table import Table
