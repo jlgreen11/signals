@@ -26,9 +26,12 @@ log = get_logger(__name__)
 class PaperTradeRunner:
     """Executes blended signals as paper trades and tracks P&L.
 
-    Uses signals/broker/paper.py PaperBroker for execution logic.
-    Positions and cash are PERSISTED to SQLite between CLI calls via
-    the _save_state / _load_state methods.
+    Supports two broker backends:
+      - "paper" (default): in-memory PaperBroker with SQLite persistence
+        for positions/cash/trades/equity between CLI calls.
+      - "alpaca": Alpaca Trading API (paper or live). Positions, fills,
+        and P&L are tracked by Alpaca's servers — no local persistence
+        needed. Requires ALPACA_API_KEY + ALPACA_SECRET_KEY env vars.
     """
 
     def __init__(
@@ -40,6 +43,7 @@ class PaperTradeRunner:
     ) -> None:
         self.engine = engine
         self.initial_capital = initial_capital
+        self.broker_type = broker
         self._trade_log: list[dict] = []
         self._daily_equity: list[dict] = []
         self._prices: dict[str, float] = {}
@@ -51,14 +55,23 @@ class PaperTradeRunner:
         self._db_path = str(db_path)
         self._init_db()
 
-        # Create the paper broker with a quote function that uses cached prices
-        self._broker = PaperBroker(
-            initial_cash=initial_capital,
-            quote_fn=self._get_price,
-        )
+        # Initialize the appropriate broker backend
+        if broker == "alpaca":
+            from signals.broker.alpaca import AlpacaBroker
+            self._broker = AlpacaBroker(live=True, paper=True)
+            self._use_alpaca = True
+            log.info("Using Alpaca paper trading API")
+        else:
+            # Local PaperBroker with SQLite persistence
+            self._broker = PaperBroker(
+                initial_cash=initial_capital,
+                quote_fn=self._get_price,
+            )
+            self._use_alpaca = False
 
-        # Load previously saved state (if any)
-        self._load_state()
+        # Load previously saved state (if using local paper broker)
+        if not self._use_alpaca:
+            self._load_state()
 
     # ------------------------------------------------------------------
     # SQLite persistence
@@ -305,8 +318,10 @@ class PaperTradeRunner:
         self._daily_equity.append(eq_record)
         self._persist_equity(eq_record)
 
-        # Step 8: Save position state to SQLite (survives between CLI calls)
-        self._save_state()
+        # Step 8: Save position state to SQLite (local paper broker only;
+        # Alpaca tracks its own state server-side)
+        if not self._use_alpaca:
+            self._save_state()
 
         return {
             "timestamp": now.isoformat(),

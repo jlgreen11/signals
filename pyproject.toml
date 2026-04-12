@@ -38,6 +38,9 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
 ]
+alpaca = [
+    "alpaca-py>=0.30",
+]
 
 [project.scripts]
 signals = "signals.cli:app"

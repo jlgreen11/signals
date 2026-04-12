@@ -70,12 +70,18 @@ def auto_trade(
     momentum_weight: float = typer.Option(0.50, "--momentum-weight"),
     tsmom_weight: float = typer.Option(0.30, "--tsmom-weight"),
     pead_weight: float = typer.Option(0.20, "--pead-weight"),
+    broker: str = typer.Option("paper", "--broker", help="paper or alpaca"),
 ) -> None:
-    """Run daily signals and execute paper trades."""
+    """Run daily signals and execute trades.
+
+    --broker paper   (default) local PaperBroker with SQLite persistence
+    --broker alpaca  Alpaca Trading API paper account (requires
+                     ALPACA_API_KEY + ALPACA_SECRET_KEY env vars)
+    """
     engine, _store, _overlay = _make_engine(
         capital, momentum_weight, tsmom_weight, pead_weight
     )
-    runner = PaperTradeRunner(engine=engine, initial_capital=capital)
+    runner = PaperTradeRunner(engine=engine, initial_capital=capital, broker=broker)
     result = runner.execute_daily()
 
     console.print(result["report"]["report_text"])
@@ -107,10 +113,11 @@ def auto_trade(
 @auto_app.command("positions")
 def auto_positions(
     capital: float = typer.Option(100_000.0, "--capital"),
+    broker: str = typer.Option("paper", "--broker", help="paper or alpaca"),
 ) -> None:
-    """View current paper trading positions."""
+    """View current positions."""
     engine, _store, _overlay = _make_engine(capital)
-    runner = PaperTradeRunner(engine=engine, initial_capital=capital)
+    runner = PaperTradeRunner(engine=engine, initial_capital=capital, broker=broker)
 
     positions = runner.get_positions()
     if positions.empty:
@@ -128,10 +135,11 @@ def auto_positions(
 @auto_app.command("performance")
 def auto_performance(
     capital: float = typer.Option(100_000.0, "--capital"),
+    broker: str = typer.Option("paper", "--broker", help="paper or alpaca"),
 ) -> None:
-    """View paper trading performance metrics."""
+    """View trading performance metrics."""
     engine, _store, _overlay = _make_engine(capital)
-    runner = PaperTradeRunner(engine=engine, initial_capital=capital)
+    runner = PaperTradeRunner(engine=engine, initial_capital=capital, broker=broker)
 
     perf = runner.get_performance()
     table = Table(title="Paper Trading Performance")
