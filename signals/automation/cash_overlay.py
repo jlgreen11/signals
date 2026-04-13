@@ -34,8 +34,8 @@ class CashOverlay:
     total_capital: float = 100_000.0
     model_weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_MODEL_WEIGHTS))
     max_position_pct: float = 0.25
-    cash_reserve_pct: float = 0.05
-    max_gross_exposure: float = 0.95
+    cash_reserve_pct: float = 0.0
+    max_gross_exposure: float = 1.0
 
     def blend(
         self, model_targets: dict[str, dict[str, float]]
