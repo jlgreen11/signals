@@ -84,7 +84,7 @@ class CrossSectionalMomentum:
         commission_bps: float = 5.0,
         slippage_bps: float = 5.0,
         mode: str = "early_breakout",
-        max_per_sector: int | None = 1,
+        max_per_sector: int | None = 2,
         max_12m_return: float = 1.5,
         short_lookback: int = 21,
         min_short_return: float = 0.10,

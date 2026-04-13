@@ -111,7 +111,7 @@ def _make_engine(
             lookback_days=126,
             short_lookback=21,
             n_long=15,
-            max_per_sector=1,
+            max_per_sector=2,
             max_12m_return=1.5,
             min_short_return=0.10,
             rebalance_freq=21,
