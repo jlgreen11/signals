@@ -8,9 +8,10 @@
 A quant research project that spent 10 rounds of adversarial review
 testing every approach we could find — Markov chains, trend filters,
 vol-regime routing, hybrid ensembles, pairs trading — and discovered
-that **the signal class matters more than the model complexity**. Three
-strategies beat buy-and-hold on US equities; the original Markov
-approach was not one of them.
+that **most backtest results are inflated by survivorship bias**. On a
+bias-free basis (26 years, 1,081 historical SP500 constituents), the
+best strategy edges out SPY by ~3.9% CAGR with worse drawdowns. The
+original Markov approach failed outright.
 
 ## ⚠ Disclaimer
 
@@ -29,74 +30,63 @@ honest scorecard. Momentum and multi-factor numbers are on the full
 SP500 universe; TSMOM is on 8 asset classes. All correctly annualized
 at 252/yr for equities, risk-free rate ~2.3%.
 
-### Survivorship bias warning
+### The honest numbers (survivorship-bias-free)
 
-Our trailing 4-year numbers (below) use today's SP500 members for all
-historical dates. A **26-year survivorship-bias-free backtest** using
-the [fja05680/sp500](https://github.com/fja05680/sp500) dataset of
-daily constituent lists (1,081 unique tickers since 2000, including
-Enron, Lehman, Countrywide, and 585 other delisted companies) shows
-the real picture:
+All headline results below are from a **26-year survivorship-bias-free
+backtest** (2000-2026) using the
+[fja05680/sp500](https://github.com/fja05680/sp500) dataset of daily
+SP500 constituent lists — 1,081 unique tickers including Enron, Lehman,
+Countrywide, and 585 other companies that were later delisted, acquired,
+or went bankrupt.
 
 | Strategy | $100K became | CAGR | Sharpe | Max DD |
 |---|---:|---:|---:|---:|
-| **Bias-free momentum top-10** | **$1,395,381** | **+10.6%** | **0.501** | −66.2% |
-| SPY buy & hold | $743,656 | +7.94% | 0.492 | −55.2% |
+| **Early-breakout momentum (production)** | **$1,881,447** | **+11.8%** | **0.594** | −59.0% |
+| Classic 12-month momentum | $1,519,771 | +10.9% | 0.520 | −64.4% |
+| SPY buy & hold | $743,656 | +7.9% | 0.492 | −55.2% |
 | Biased momentum (today's SP500) | $64,240,548 | +27.9% | 0.910 | −66.8% |
 
-**Survivorship bias inflates Sharpe by ~80% and CAGR by ~18pp.**
-Bias-free momentum still edges out SPY (Sharpe 0.501 vs 0.492, CAGR
-10.6% vs 7.9%), but the margin is thin — not the 3x Sharpe advantage
-the biased test suggests. The biased test's $64M final equity is a
-fantasy built on always picking from a list of future survivors.
+**Survivorship bias inflates Sharpe by ~80% and CAGR by ~18pp.** The
+biased test's $64M result is a fantasy built on always picking from a
+list of future survivors. Our production model's real edge is **+3.9%
+CAGR over SPY** with comparable drawdowns — meaningful but modest, not
+the 50%+ CAGR the biased tests suggest.
 
-Key findings from the bias-free test:
-- **48.9% win rate** across 1,074 round-trip trades over 26 years
+Key findings:
+- **59% win rate** on early-breakout model (vs 49% for classic momentum)
 - **Extreme entry momentum predicts blowups**: QCOM at +2563% momentum
-  lost 59.5%; SMCI at +850% lost 52.0%
-- **20% win rate in 2008**, avg trade −11.9%
-- A 26-rule exit-rule sweep (profit targets, stop losses, trailing
-  stops, and combinations) found that **no rule beats doing nothing** —
-  momentum's edge is entirely in letting fat-tail winners compound
-
-A **122-parameter sweep** (acceleration windows, hold periods, position
-counts, sector caps, and entry filters) found the optimal configuration:
-
-| Config | Sharpe | CAGR | Max DD | $100K → |
-|--------|--------|------|--------|---------|
-| Original (3m/12m, 10 stocks, 2/sector) | 0.520 | 10.9% | −64.4% | $1.52M |
-| **Optimized (1m/6m, 15 stocks, 1/sector)** | **0.643** | **10.4%** | **−51.4%** | **$1.35M** |
-
-The optimized model catches breakouts faster (1-month vs 6-month
-acceleration), diversifies harder (max 1 per sector, 15 positions),
-and filters weak entries (min 10% short-term return).
+  lost 59.5%; SMCI at +850% lost 52.0% — the early-breakout model
+  avoids these by filtering stocks with >150% trailing returns
+- **20% win rate in 2008**, avg trade −11.9% — no momentum strategy
+  avoids crash years
+- A **26-rule exit-rule sweep** found no profit target, stop loss, or
+  trailing stop improves the strategy
+- A **122-parameter sweep** optimized the acceleration windows, hold
+  periods, sector caps, and entry filters
 
 See [`scripts/SURVIVORSHIP_FREE_RESULTS.md`](./scripts/SURVIVORSHIP_FREE_RESULTS.md)
 for the full era-by-era breakdown.
 
-### Strategies that BEAT buy-and-hold
+### Strategies that failed
 
-*Note: these numbers use today's SP500 members and are therefore
-subject to the survivorship bias described above. Treat them as
-upper bounds.*
+| Strategy | Result | Why |
+|---|---|---|
+| Biased momentum backtests | Sharpe 1.3+, CAGR 60%+ | **Survivorship bias** — using today's SP500 at all historical dates |
+| Markov hybrid (5 variants) | 5% win rate vs B&H (100 tests) | Wrong signal class: daily price/vol patterns contain no exploitable edge |
+| Trend filter / golden cross | 0/20 stocks beat B&H | Individual stocks don't trend-follow like asset classes |
+| Pairs trading (stat arb) | Sharpe −0.47, CAGR −5.8% | Edge too small for costs; cointegration is unstable |
 
-| Strategy | Universe | Sharpe | CAGR | Max DD | Signal class |
-|---|---|---:|---:|---:|---|
-| **Cross-sectional momentum top-10** | 498 SP500 | **+1.345** | **+60.3%** | −41.0% | Relative stock ranking |
-| **Multi-factor (mom+val+qual)** | 498 SP500 | **~+1.2** | **~+45%** | ~−35% | Composite: momentum + value + quality + news filter |
-| **Cross-sectional momentum top-5** | 498 SP500 | **+1.635** | **+96.2%** | −46.0% | Concentrated momentum |
-| **PEAD earnings drift** | 20 stocks | +0.960 | +23.4% | −26.6% | Fundamental (earnings surprise) |
-| **TSMOM multi-asset** | 8 assets | +0.947 | +9.8% | **−8.9%** | Macro asset-class trends |
+### Other models (not yet bias-tested)
 
-### Strategies that LOST to buy-and-hold
+These models showed positive results on biased backtests but have **not
+been validated survivorship-bias-free**. Treat these numbers as upper
+bounds until proven otherwise.
 
-| Strategy | Sharpe | CAGR | Max DD | Why it failed |
+| Strategy | Sharpe | CAGR | Max DD | Caveat |
 |---|---:|---:|---:|---|
-| SP500 buy-and-hold | +0.491 | +9.7% | −21.9% | *(benchmark)* |
-| Markov hybrid (best of 5 variants) | avg −0.18 delta | — | — | Wrong signal class: daily price/vol patterns contain no exploitable edge at retail |
-| Trend filter (200-day MA) | 0/20 stocks | — | — | Individual stocks don't trend-follow like asset classes do |
-| Golden cross (50/200 MA) | 0/20 stocks | — | — | Same failure mode as trend filter |
-| Pairs trading (stat arb) | −0.474 | −5.8% | −47.2% | Edge too small for costs; cointegration is unstable |
+| PEAD earnings drift | +0.960 | +23.4% | −26.6% | 20-stock universe, 5-year test only |
+| TSMOM multi-asset | +0.947 | +9.8% | −8.9% | 8 asset classes (ETFs), not SP500 stocks |
+| Multi-factor composite | ~+1.2 | ~+45% | ~−35% | Uses today's SP500 — likely biased |
 
 ### The meta-lesson
 
@@ -123,39 +113,29 @@ methodology or the model complexity.**
 
 ## The winning strategies in detail
 
-### 1. Cross-sectional momentum — the standout winner
+### 1. Early-breakout momentum — production model
 
 [`signals/model/momentum.py`](./signals/model/momentum.py) |
-[`scripts/CROSS_SECTIONAL_MOMENTUM_RESULTS.md`](./scripts/CROSS_SECTIONAL_MOMENTUM_RESULTS.md)
+[`scripts/survivorship_free_test.py`](./scripts/survivorship_free_test.py)
 
-Jegadeesh & Titman (1993): rank all 498 SP500 stocks by trailing
-12-month return (excluding the most recent month), go long the top N,
-rebalance monthly. 5+5 bps transaction costs. Tested on the full SP500
-universe fetched via Alpaca data API.
+Instead of classic 12-month momentum (which buys already-extended
+winners), the early-breakout model ranks by **momentum acceleration**:
+1-month return minus the annualized 6-month pace. This catches stocks
+at the start of a move. Stocks with >150% trailing 6-month return are
+filtered to avoid buying at the top. Max 2 per GICS sector.
 
-**Trailing 4 years on full SP500** ($10,000 initial, 2022-04 → 2026-04):
+**Bias-free results** (2000-2026, $100K, point-in-time SP500 constituents):
 
-| Config | Sharpe | CAGR | Max DD | $10k became |
+| Config | Sharpe | CAGR | Max DD | $100K → |
 |---|---:|---:|---:|---:|
-| **SP500 momentum top-5** | **+1.635** | **+96.2%** | −46.0% | **$147,948** |
-| **SP500 momentum top-10** | **+1.345** | **+60.3%** | −41.0% | **$66,045** |
-| SP500 momentum top-20 | +1.291 | +48.7% | −34.3% | $48,837 |
-| SP500 momentum top-50 | +0.903 | +24.1% | −29.3% | $23,713 |
-| SP500 Index B&H | +0.491 | +9.7% | −21.9% | $14,464 |
+| **Early breakout (15 stocks, 2/sector)** | **0.594** | **+11.8%** | −59.0% | **$1,881,447** |
+| Classic 12m momentum (10 stocks) | 0.520 | +10.9% | −64.4% | $1,519,771 |
+| SPY B&H | 0.492 | +7.9% | −55.2% | $743,656 |
 
-**Every configuration crushes the index.** Top-10 is the production
-default — best balance of Sharpe and diversification.
-
-**Regime-robust** on a biased basis: tested across 5 sub-windows
-including the 2022 bear market. Momentum made +2.7% while SP lost
-−20.2% in 2022 — a +22.9pp gap.
-
-**On a survivorship-bias-free basis** (26-year test with point-in-time
-SP500 constituents), the optimized early-breakout model achieves Sharpe
-0.643 vs SPY's 0.492 — a real 31% improvement, validated across 122
-parameter combinations. The 1-month/6-month acceleration signal with
-strict sector diversification (max 1 per sector) cuts max drawdown
-from −64% to −51% while maintaining 10%+ CAGR. See
+The edge is real but modest: **+3.9% CAGR over SPY**, with worse
+drawdowns (−59% vs −55%). Optimized via a 122-parameter sweep across
+acceleration windows, hold periods, position counts, sector caps, and
+entry filters. See
 [`scripts/survivorship_free_test.py`](./scripts/survivorship_free_test.py).
 
 ### 1b. Multi-factor composite (momentum + value + quality + news filter)
@@ -384,10 +364,15 @@ sp500 = pd.read_csv("https://raw.githubusercontent.com/datasets/s-and-p-500-comp
 tickers = sp500["Symbol"].str.replace(".", "-").tolist()
 prices = {t: store.load(t, "1d") for t in tickers if len(store.load(t, "1d")) > 500}
 
-# Run momentum: rank 498 stocks, go long top 10
-mom = CrossSectionalMomentum(lookback_days=252, skip_days=21, n_long=10)
-equity = mom.backtest(prices, "2022-04-01", "2026-04-01")
-print(f"Final: ${equity.iloc[-1]:,.0f}")  # ~$66k from $10k
+# Early-breakout momentum (default): acceleration-ranked, sector-diversified
+mom = CrossSectionalMomentum()  # defaults: 1m/6m accel, 15 stocks, 2/sector
+weights = mom.rank(prices, as_of_date=pd.Timestamp("2026-04-12", tz="UTC"))
+print({t: w for t, w in weights.items() if w > 0})
+
+# Classic mode for comparison
+mom_classic = CrossSectionalMomentum(mode="classic", lookback_days=252, n_long=10)
+equity = mom_classic.backtest(prices, "2022-04-01", "2026-04-01")
+# NOTE: backtest on today's SP500 is survivorship-biased — real edge is ~3.9% CAGR over SPY
 ```
 
 ## Tests
@@ -425,28 +410,20 @@ data, and broker infrastructure.
 ## History in one paragraph
 
 Started in April 2026 as a Markov-chain BTC signal generator inspired
-by Nascimento et al. (2022). A skeptic review tore down the "Sharpe
+by Nascimento et al. (2022). A skeptic review exposed the "Sharpe
 2.15" headline as a seed-42 artifact on overlapping windows. Five
-rounds of corrections fixed annualization, samplers, and DSR. A
-4-asset portfolio experiment showed diversification math works but
-depends on BTC's forward return. The Markov approach was conclusively
-sunset after failing 100/100 ticker-model tests on equities. The
-project pivoted to academically-grounded signal classes: cross-
-sectional momentum (Jegadeesh-Titman 1993), multi-factor composite
-scoring (momentum + value + quality with news filtering), time-series
-momentum (Moskowitz et al. 2012), and post-earnings announcement
-drift. Three of four worked; pairs trading didn't. The momentum
-strategy was then scaled to the full 498-stock SP500 universe via the
-Alpaca data API. A **26-year survivorship-bias-free backtest** using
-1,081 historical SP500 constituents (including dead companies like
-Enron, Lehman, Countrywide) showed that survivorship bias inflates
-momentum Sharpe by ~80% — bias-free Sharpe is 0.501 vs SPY's 0.492,
-a real but thin edge, not the 1.3+ headline from biased tests. A
-26-rule exit-rule sweep confirmed that no profit target, stop loss, or
-trailing stop improves the strategy. Three parallel Alpaca paper
-trading accounts now run automated monthly rebalancing — pure
-momentum, multi-factor, and SPY B&H baseline — for live forward
-testing. 283 tests, 28 test modules.
+rounds of corrections fixed annualization, samplers, and DSR. The
+Markov approach was sunset after failing 100/100 ticker-model tests.
+The project pivoted to cross-sectional momentum and discovered that
+survivorship bias inflated all backtest results by ~80%. A 26-year
+bias-free test using 1,081 historical SP500 constituents showed
+classic momentum barely edges SPY (CAGR 10.9% vs 7.9%). An early-
+breakout variant — ranking by momentum acceleration instead of raw
+trailing return, with sector diversification — improved to 11.8% CAGR
+bias-free, validated across a 122-parameter sweep. The real edge over
+SPY is ~3.9% CAGR, not the 50%+ CAGR that biased backtests suggest.
+Three Alpaca paper trading accounts run automated rebalancing for
+live forward testing. 283 tests, 28 test modules.
 
 ## Project layout
 

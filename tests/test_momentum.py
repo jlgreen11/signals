@@ -218,7 +218,6 @@ class TestEarlyBreakout:
 
     def test_sector_cap(self) -> None:
         """Max per-sector cap should be enforced."""
-        n = 300
         prices = {}
         # 5 tech stocks with varying acceleration (strong surges in last 50d)
         for i in range(5):

@@ -63,12 +63,12 @@ def _load_sp500_sectors() -> dict[str, str]:
             import pandas as pd
             url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
             df = pd.read_csv(url)
-            return dict(zip(df["Symbol"], df["Sector"]))
+            return dict(zip(df["Symbol"], df["Sector"], strict=True))
         except Exception:
             return {}
     import pandas as pd
     df = pd.read_csv(csv_path)
-    return dict(zip(df["Symbol"], df["GICS Sector"]))
+    return dict(zip(df["Symbol"], df["GICS Sector"], strict=True))
 
 
 def _make_engine(
