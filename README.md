@@ -8,7 +8,7 @@
 Quant research project that tested 7 model classes on US equities and
 discovered most backtest results are inflated by survivorship bias. On
 a **26-year bias-free backtest** (1,081 historical SP500 constituents
-including dead companies), our best strategy beats SPY by ~3.9% CAGR
+including dead companies), our best strategy beats SPY by ~1.5% CAGR
 — real but modest.
 
 ## Disclaimer
@@ -28,19 +28,11 @@ Countrywide, and 585 other delisted/bankrupt companies. No lookahead.
 
 | Strategy | CAGR | Sharpe | Max DD | $100K became |
 |---|---:|---:|---:|---:|
-| **Early-breakout momentum** | **+11.8%** | **0.594** | -59.0% | **$1,881,447** |
-| Classic 12-month momentum | +10.9% | 0.520 | -64.4% | $1,519,771 |
+| **Early-breakout momentum** | **+9.4%** | **0.428** | -79.2% | **$1,055,530** |
 | SPY buy & hold | +7.9% | 0.492 | -55.2% | $743,656 |
 
-With $10K/month DCA (fully invested, 0% cash reserve):
-
-| Strategy | 10-year | 20-year | 26-year |
-|---|---:|---:|---:|
-| **Early-breakout momentum** | **$2.69M** | **$11.8M** | **$29.5M** |
-| SPY buy & hold | $1.98M | $6.0M | $18.0M |
-| Total invested | $1.29M | $2.49M | $3.21M |
-
-Statistical significance: p=0.0002 (t-test, excess returns vs SPY).
+Results from the canonical backtest module (`signals.backtest.bias_free`)
+— deterministic, single source of truth for all evaluations.
 
 ### How the model works
 
@@ -149,7 +141,6 @@ equity tests. Pivoted to cross-sectional momentum and discovered
 survivorship bias inflated all results ~80%. A 26-year bias-free test
 on 1,081 historical SP500 constituents showed classic momentum barely
 edges SPY. An early-breakout variant — ranking by acceleration with
-sector diversification — improved to 11.8% CAGR (vs SPY 7.9%),
-validated across 122 parameter combinations and statistically
-significant at p=0.0002. Three Alpaca paper accounts run live forward
-testing.
+sector diversification — improved to 9.4% CAGR (vs SPY 7.9%) on the
+canonical deterministic backtest, validated across 150+ parameter
+combinations. Three Alpaca paper accounts run live forward testing.
