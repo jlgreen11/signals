@@ -29,7 +29,44 @@ honest scorecard. Momentum and multi-factor numbers are on the full
 SP500 universe; TSMOM is on 8 asset classes. All correctly annualized
 at 252/yr for equities, risk-free rate ~2.3%.
 
+### Survivorship bias warning
+
+Our trailing 4-year numbers (below) use today's SP500 members for all
+historical dates. A **26-year survivorship-bias-free backtest** using
+the [fja05680/sp500](https://github.com/fja05680/sp500) dataset of
+daily constituent lists (1,081 unique tickers since 2000, including
+Enron, Lehman, Countrywide, and 585 other delisted companies) shows
+the real picture:
+
+| Strategy | $100K became | CAGR | Sharpe | Max DD |
+|---|---:|---:|---:|---:|
+| **Bias-free momentum top-10** | **$1,395,381** | **+10.6%** | **0.501** | −66.2% |
+| SPY buy & hold | $743,656 | +7.94% | 0.492 | −55.2% |
+| Biased momentum (today's SP500) | $64,240,548 | +27.9% | 0.910 | −66.8% |
+
+**Survivorship bias inflates Sharpe by ~80% and CAGR by ~18pp.**
+Bias-free momentum still edges out SPY (Sharpe 0.501 vs 0.492, CAGR
+10.6% vs 7.9%), but the margin is thin — not the 3x Sharpe advantage
+the biased test suggests. The biased test's $64M final equity is a
+fantasy built on always picking from a list of future survivors.
+
+Key findings from the bias-free test:
+- **48.9% win rate** across 1,074 round-trip trades over 26 years
+- **Extreme entry momentum predicts blowups**: QCOM at +2563% momentum
+  lost 59.5%; SMCI at +850% lost 52.0%
+- **20% win rate in 2008**, avg trade −11.9%
+- A 26-rule exit-rule sweep (profit targets, stop losses, trailing
+  stops, and combinations) found that **no rule beats doing nothing** —
+  momentum's edge is entirely in letting fat-tail winners compound
+
+See [`scripts/SURVIVORSHIP_FREE_RESULTS.md`](./scripts/SURVIVORSHIP_FREE_RESULTS.md)
+for the full era-by-era breakdown.
+
 ### Strategies that BEAT buy-and-hold
+
+*Note: these numbers use today's SP500 members and are therefore
+subject to the survivorship bias described above. Treat them as
+upper bounds.*
 
 | Strategy | Universe | Sharpe | CAGR | Max DD | Signal class |
 |---|---|---:|---:|---:|---|
@@ -97,10 +134,16 @@ universe fetched via Alpaca data API.
 **Every configuration crushes the index.** Top-10 is the production
 default — best balance of Sharpe and diversification.
 
-**Regime-robust**: tested across 5 sub-windows including the 2022 bear
-market. Momentum made +2.7% while SP lost −20.2% in 2022 — a +22.9pp
-gap. The strategy rotated into energy and defense names. See
-[`scripts/data/full_sp500_momentum.parquet`](./scripts/data/full_sp500_momentum.parquet).
+**Regime-robust** on a biased basis: tested across 5 sub-windows
+including the 2022 bear market. Momentum made +2.7% while SP lost
+−20.2% in 2022 — a +22.9pp gap.
+
+**On a survivorship-bias-free basis** (26-year test with point-in-time
+SP500 constituents), momentum's edge shrinks to Sharpe 0.501 vs SPY's
+0.492 — still positive but thin. The strategy's 48.9% win rate and
+median trade return of −0.2% mean it lives or dies on the few big
+winners (NVDA +681%, PLTR +295%, VLO +234%). See
+[`scripts/survivorship_free_test.py`](./scripts/survivorship_free_test.py).
 
 ### 1b. Multi-factor composite (momentum + value + quality + news filter)
 
@@ -340,7 +383,7 @@ print(f"Final: ${equity.iloc[-1]:,.0f}")  # ~$66k from $10k
 pytest --cov=signals
 ```
 
-**276 tests** across 28 test modules covering all model classes
+**283 tests** across 28 test modules covering all model classes
 (momentum, TSMOM, PEAD, pairs, Markov sunset, hybrid, trend, boost,
 ensemble, composite, HMM, HOMC, lookahead regression, sunset warnings,
 absolute encoder, rule-based signals) plus engine, portfolio, metrics,
@@ -381,12 +424,16 @@ scoring (momentum + value + quality with news filtering), time-series
 momentum (Moskowitz et al. 2012), and post-earnings announcement
 drift. Three of four worked; pairs trading didn't. The momentum
 strategy was then scaled to the full 498-stock SP500 universe via the
-Alpaca data API, producing Sharpe 1.3+ that was regime-robust across
-bull and bear markets. A multi-factor variant added value (P/E) and
-quality (ROE) filters plus a headline-scanning news filter for event
-risk. Three parallel Alpaca paper trading accounts now run automated
-monthly rebalancing — pure momentum, multi-factor, and SPY B&H
-baseline — for live forward testing. 276 tests, 28 test modules.
+Alpaca data API. A **26-year survivorship-bias-free backtest** using
+1,081 historical SP500 constituents (including dead companies like
+Enron, Lehman, Countrywide) showed that survivorship bias inflates
+momentum Sharpe by ~80% — bias-free Sharpe is 0.501 vs SPY's 0.492,
+a real but thin edge, not the 1.3+ headline from biased tests. A
+26-rule exit-rule sweep confirmed that no profit target, stop loss, or
+trailing stop improves the strategy. Three parallel Alpaca paper
+trading accounts now run automated monthly rebalancing — pure
+momentum, multi-factor, and SPY B&H baseline — for live forward
+testing. 283 tests, 28 test modules.
 
 ## Project layout
 
@@ -438,6 +485,10 @@ scripts/
 ├── pead_eval.py                      # Earnings drift
 ├── pairs_trading_eval.py             # Stat arb (didn't work)
 ├── multi_stock_algo_eval.py          # 20-stock × 5-model Markov failure test
+├── survivorship_free_test.py         # 26-year bias-free backtest (1,081 tickers)
+├── exit_rules_sweep.py              # 26-rule exit rule optimization
+├── historical_stress_test.py         # 25-year era-by-era stress test
+├── optimizer_eval.py                 # Portfolio optimizer comparison
 ├── automation_demo.py                # End-to-end automation demo
 ├── _window_sampler.py                # Shared non-overlap sampler
 └── data/                             # Persisted results (parquet + markdown)

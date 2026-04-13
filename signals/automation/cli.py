@@ -52,6 +52,25 @@ def _set_alpaca_keys(account: str) -> None:
     os.environ["ALPACA_SECRET_KEY"] = secret
 
 
+def _load_sp500_sectors() -> dict[str, str]:
+    """Load GICS sector mapping for SP500 tickers."""
+    from pathlib import Path
+
+    csv_path = Path("/tmp/sp500_with_sectors.csv")
+    if not csv_path.exists():
+        # Try fetching from the web
+        try:
+            import pandas as pd
+            url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+            df = pd.read_csv(url)
+            return dict(zip(df["Symbol"], df["Sector"]))
+        except Exception:
+            return {}
+    import pandas as pd
+    df = pd.read_csv(csv_path)
+    return dict(zip(df["Symbol"], df["GICS Sector"]))
+
+
 def _make_engine(
     capital: float = 100_000.0,
     account: str = "momentum",
@@ -59,16 +78,17 @@ def _make_engine(
     """Build the full automation stack.
 
     The account type determines the strategy mix:
-      momentum    → 100% cross-sectional momentum on SP500
+      momentum    → 100% early-breakout momentum on SP500 (sector-diversified)
       multifactor → 100% multi-factor (momentum+value+quality+news filter)
       baseline    → not used (SPY B&H, no signals needed)
     """
+    from signals.model.momentum import CrossSectionalMomentum
+
     data_store = DataStore(SETTINGS.data.dir)
     signal_store = SignalStore(db_path=str(data_store.db_path))
+    sectors = _load_sp500_sectors()
 
     if account == "multifactor":
-        # Multi-factor uses 100% momentum allocation but with the
-        # MultiFactor ranker + news filter via use_multifactor=True
         overlay = CashOverlay(
             total_capital=capital,
             model_weights={"momentum": 1.0, "tsmom": 0.0, "pead": 0.0},
@@ -78,18 +98,31 @@ def _make_engine(
             cash_overlay=overlay,
             data_store=data_store,
             use_multifactor=True,
+            sectors=sectors,
         )
     else:
-        # Pure momentum — 100% cross-sectional momentum on full SP500
+        # Early breakout momentum — sector-diversified, acceleration-ranked
         overlay = CashOverlay(
             total_capital=capital,
             model_weights={"momentum": 1.0, "tsmom": 0.0, "pead": 0.0},
         )
+        mom = CrossSectionalMomentum(
+            mode="early_breakout",
+            n_long=10,
+            max_per_sector=2,
+            max_12m_return=1.0,
+            rebalance_freq=21,
+        )
+        # Use the full SP500 universe from the sector data
+        sp500_tickers = list(sectors.keys()) if sectors else None
         engine = InsightsEngine(
             signal_store=signal_store,
             cash_overlay=overlay,
             data_store=data_store,
+            tickers=sp500_tickers,
             use_multifactor=False,
+            momentum_model=mom,
+            sectors=sectors,
         )
     return engine, signal_store, overlay
 

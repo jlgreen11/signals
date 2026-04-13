@@ -59,14 +59,17 @@ class InsightsEngine:
         multifactor_model: MultiFactor | None = None,
         fundamentals: pd.DataFrame | None = None,
         news_filter: NewsFilter | None = None,
+        sectors: dict[str, str] | None = None,
     ) -> None:
         self.signal_store = signal_store
         self.cash_overlay = cash_overlay
         self.data_store = data_store
         self.tickers = tickers or DEFAULT_MOMENTUM_TICKERS
         self.tsmom_tickers = tsmom_tickers or DEFAULT_TSMOM_TICKERS
+        self.sectors = sectors
         self.momentum_model = momentum_model or CrossSectionalMomentum(
-            lookback_days=252, skip_days=21, n_long=5, rebalance_freq=21,
+            lookback_days=252, skip_days=21, n_long=10, rebalance_freq=21,
+            mode="early_breakout", max_per_sector=2,
         )
         self.tsmom_model = tsmom_model or TimeSeriesMomentum(
             lookback_days=252, vol_window=63, risk_parity=True, rebalance_freq=21,
@@ -142,7 +145,9 @@ class InsightsEngine:
                 prices_dict, self.fundamentals, as_of_date=as_of,
             )
         else:
-            weights = self.momentum_model.rank(prices_dict, as_of_date=as_of)
+            weights = self.momentum_model.rank(
+                prices_dict, as_of_date=as_of, sectors=self.sectors,
+            )
 
         return {t: w for t, w in weights.items() if w > 0}
 
