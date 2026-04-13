@@ -94,8 +94,6 @@ def build_close_matrix(
     """Build (n_dates x n_tickers) close-price matrix. NaN where no data."""
     tickers = sorted(prices_dict.keys())
     ticker_to_idx = {t: i for i, t in enumerate(tickers)}
-    date_set = set(trading_dates)
-
     mat = np.full((len(trading_dates), len(tickers)), np.nan)
     date_to_row = {d: i for i, d in enumerate(trading_dates)}
 
@@ -125,9 +123,6 @@ def score_momentum_matrix(
 
     scores = []
     for col in eligible_cols:
-        recent_price = close_mat[row_idx - skip + skip, col]  # current row after skip
-        # Actually: we want close at row_idx (skip is handled by using row_idx)
-        # and close at row_idx - lookback
         end_price = close_mat[row_idx, col]
         start_row = row_idx - lookback
         if start_row < 0:
@@ -385,7 +380,7 @@ def main() -> None:
     # Save
     df = pd.DataFrame(results)
     df.to_csv("/tmp/exit_rules_sweep.csv", index=False)
-    print(f"\nSaved to /tmp/exit_rules_sweep.csv", flush=True)
+    print("\nSaved to /tmp/exit_rules_sweep.csv", flush=True)
 
 
 if __name__ == "__main__":

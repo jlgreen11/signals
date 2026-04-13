@@ -17,7 +17,6 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -369,7 +368,7 @@ def run_backtest(
     if not equity_points:
         return pd.Series(dtype=float)
 
-    ts, eq = zip(*equity_points)
+    ts, eq = zip(*equity_points, strict=False)
     return pd.Series(eq, index=pd.DatetimeIndex(ts), name=label)
 
 
@@ -497,7 +496,7 @@ def run_biased_backtest(
     if not equity_points:
         return pd.Series(dtype=float)
 
-    ts, eq = zip(*equity_points)
+    ts, eq = zip(*equity_points, strict=False)
     return pd.Series(eq, index=pd.DatetimeIndex(ts), name="Biased Momentum")
 
 

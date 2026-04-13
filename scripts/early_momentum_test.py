@@ -262,7 +262,7 @@ def run_early_momentum(
             if candidates:
                 # Count current sector exposure
                 sector_count: dict[str, int] = {}
-                for col, h in holdings.items():
+                for _col, h in holdings.items():
                     s = h["sector"]
                     sector_count[s] = sector_count.get(s, 0) + 1
 
@@ -531,14 +531,14 @@ def main() -> None:
         print(f"  Median return: {tdf['return'].median():+.1%}", flush=True)
 
         # Sector distribution
-        print(f"\n  Sector distribution:", flush=True)
+        print("\n  Sector distribution:", flush=True)
         for sector, grp in tdf.groupby("sector"):
             wr = (grp["return"] > 0).mean()
             avg = grp["return"].mean()
             print(f"    {sector:30s} n={len(grp):4d}  win={wr:.0%}  avg={avg:+.1%}", flush=True)
 
         # Year-by-year
-        print(f"\n  Annual win rate:", flush=True)
+        print("\n  Annual win rate:", flush=True)
         tdf["year"] = tdf["exit_date"].str[:4]
         for year, grp in tdf.groupby("year"):
             wr = (grp["return"] > 0).mean()
@@ -546,27 +546,27 @@ def main() -> None:
             print(f"    {year}: win={wr:.0%}  avg={avg:+.1%}  trades={len(grp)}", flush=True)
 
         # Entry momentum profile
-        print(f"\n  Entry profile (avg):", flush=True)
+        print("\n  Entry profile (avg):", flush=True)
         print(f"    3m momentum at entry: {tdf['ret_3m_at_entry'].mean():+.1%}", flush=True)
         print(f"    12m momentum at entry: {tdf['ret_12m_at_entry'].mean():+.1%}", flush=True)
         print(f"    Acceleration at entry: {tdf['accel'].mean():+.1%}", flush=True)
 
         # Best/worst
-        print(f"\n  Best 10 trades:", flush=True)
+        print("\n  Best 10 trades:", flush=True)
         for _, r in tdf.nlargest(10, "return").iterrows():
             print(f"    {r['ticker']:8s} {r['sector']:25s} {r['entry_date']}->{r['exit_date']} "
                   f"ret={r['return']:+.1%}  3m@entry={r['ret_3m_at_entry']:+.1%}", flush=True)
 
-        print(f"\n  Worst 10 trades:", flush=True)
+        print("\n  Worst 10 trades:", flush=True)
         for _, r in tdf.nsmallest(10, "return").iterrows():
             print(f"    {r['ticker']:8s} {r['sector']:25s} {r['entry_date']}->{r['exit_date']} "
                   f"ret={r['return']:+.1%}  3m@entry={r['ret_3m_at_entry']:+.1%}", flush=True)
 
         tdf.to_csv("/tmp/early_momentum_trades.csv", index=False)
-        print(f"\n  Full trade log: /tmp/early_momentum_trades.csv", flush=True)
+        print("\n  Full trade log: /tmp/early_momentum_trades.csv", flush=True)
 
     # Era breakdown
-    print(f"\n\nERA COMPARISON:", flush=True)
+    print("\n\nERA COMPARISON:", flush=True)
     print("-" * 80, flush=True)
     eras = {
         "Dot-com (2000-02)": ("2000-01-01", "2002-12-31"),
