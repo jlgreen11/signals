@@ -118,7 +118,7 @@ class TestBacktest:
             for i in range(5)
         }
         mom = CrossSectionalMomentum(lookback_days=50, skip_days=5, n_long=2,
-                                     rebalance_freq=21)
+                                     rebalance_freq=21, mode="classic")
         start = str(prices["S0"].index[0].date())
         end = str(prices["S0"].index[-1].date())
         equity = mom.backtest(prices, start=start, end=end, initial_cash=10000.0)
@@ -135,7 +135,8 @@ class TestBacktest:
             f"S{i}": _make_price_df(_linear_prices(100, 100 + i * 5, n))
             for i in range(5)
         }
-        mom = CrossSectionalMomentum(lookback_days=50, skip_days=5, n_long=2)
+        mom = CrossSectionalMomentum(lookback_days=50, skip_days=5, n_long=2,
+                                     mode="classic")
         start = str(prices["S0"].index[0].date())
         end = str(prices["S0"].index[-1].date())
         equity = mom.backtest(prices, start=start, end=end)
@@ -154,11 +155,11 @@ class TestBacktest:
 
         mom_costly = CrossSectionalMomentum(
             lookback_days=50, skip_days=5, n_long=2, rebalance_freq=21,
-            commission_bps=10.0, slippage_bps=10.0,
+            commission_bps=10.0, slippage_bps=10.0, mode="classic",
         )
         mom_free = CrossSectionalMomentum(
             lookback_days=50, skip_days=5, n_long=2, rebalance_freq=21,
-            commission_bps=0.0, slippage_bps=0.0,
+            commission_bps=0.0, slippage_bps=0.0, mode="classic",
         )
 
         eq_costly = mom_costly.backtest(prices, start=start, end=end)
@@ -170,7 +171,7 @@ class TestBacktest:
 
     def test_empty_universe_returns_empty(self) -> None:
         """Backtest on empty universe should return empty Series."""
-        mom = CrossSectionalMomentum(mode="classic")
+        mom = CrossSectionalMomentum(mode="classic", lookback_days=252)
         equity = mom.backtest({}, start="2020-01-01", end="2020-12-31")
         assert len(equity) == 0
 
@@ -181,52 +182,55 @@ class TestEarlyBreakout:
     def test_acceleration_ranking(self) -> None:
         """Stocks accelerating recently should rank higher than steady climbers."""
         n = 300
-        # Stock A: flat for 200 days, then surges in last 100 days
-        prices_a = [100.0] * 200 + _linear_prices(100, 150, 100)
-        # Stock B: steady climb the entire time (higher 12m, lower accel)
-        prices_b = _linear_prices(100, 180, n)
+        # Stock A: flat for 250 days, then surges +30% in last 50 days
+        prices_a = [100.0] * 250 + _linear_prices(100, 135, 50)
+        # Stock B: steady climb the entire time (higher long-term, lower accel)
+        prices_b = _linear_prices(100, 140, n)
         prices = {
             "ACCEL": _make_price_df(prices_a),
             "STEADY": _make_price_df(prices_b),
         }
         mom = CrossSectionalMomentum(mode="early_breakout", n_long=1,
-                                     max_12m_return=1.0)
+                                     lookback_days=126, short_lookback=21,
+                                     min_short_return=0.05, max_12m_return=2.0)
         as_of = prices["ACCEL"].index[-1]
         weights = mom.rank(prices, as_of_date=as_of)
         assert weights["ACCEL"] > 0, "Accelerating stock should be selected"
 
     def test_moonshot_filter(self) -> None:
-        """Stocks with >100% trailing 12m return should be filtered."""
+        """Stocks with >150% trailing return should be filtered."""
         n = 300
-        # Stock A: 150% 12m return (filtered out)
-        prices_a = _linear_prices(100, 250, n)
-        # Stock B: 50% 12m return with recent acceleration
-        prices_b = [100.0] * 200 + _linear_prices(100, 150, 100)
+        # Stock A: 200% return (filtered out at max_12m_return=1.5)
+        prices_a = _linear_prices(100, 300, n)
+        # Stock B: 40% return with recent surge
+        prices_b = [100.0] * 250 + _linear_prices(100, 130, 50)
         prices = {
             "MOONSHOT": _make_price_df(prices_a),
             "MODERATE": _make_price_df(prices_b),
         }
         mom = CrossSectionalMomentum(mode="early_breakout", n_long=2,
-                                     max_12m_return=1.0)
+                                     lookback_days=126, short_lookback=21,
+                                     min_short_return=0.05, max_12m_return=1.5)
         as_of = prices["MOONSHOT"].index[-1]
         weights = mom.rank(prices, as_of_date=as_of)
         assert weights["MOONSHOT"] == 0.0, "Moonshot should be filtered"
         assert weights["MODERATE"] > 0, "Moderate stock should be selected"
 
     def test_sector_cap(self) -> None:
-        """Max 2 stocks per sector should be enforced."""
+        """Max per-sector cap should be enforced."""
         n = 300
         prices = {}
-        # 5 tech stocks with varying acceleration
+        # 5 tech stocks with varying acceleration (strong surges in last 50d)
         for i in range(5):
-            flat = [100.0] * 200
-            surge = _linear_prices(100, 130 + i * 10, 100)
+            flat = [100.0] * 250
+            surge = _linear_prices(100, 125 + i * 10, 50)
             prices[f"TECH{i}"] = _make_price_df(flat + surge)
 
         sectors = {f"TECH{i}": "Information Technology" for i in range(5)}
 
         mom = CrossSectionalMomentum(mode="early_breakout", n_long=5,
-                                     max_per_sector=2)
+                                     lookback_days=126, short_lookback=21,
+                                     min_short_return=0.05, max_per_sector=2)
         as_of = prices["TECH0"].index[-1]
         weights = mom.rank(prices, as_of_date=as_of, sectors=sectors)
 

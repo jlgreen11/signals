@@ -108,9 +108,12 @@ def _make_engine(
         )
         mom = CrossSectionalMomentum(
             mode="early_breakout",
-            n_long=10,
-            max_per_sector=2,
-            max_12m_return=1.0,
+            lookback_days=126,
+            short_lookback=21,
+            n_long=15,
+            max_per_sector=1,
+            max_12m_return=1.5,
+            min_short_return=0.10,
             rebalance_freq=21,
         )
         # Use the full SP500 universe from the sector data

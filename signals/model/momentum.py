@@ -64,22 +64,30 @@ class CrossSectionalMomentum:
         Maximum stocks per GICS sector (default 2). Only applies when sectors
         dict is passed to rank(). Set to None to disable.
     max_12m_return : float
-        Maximum trailing 12-month return allowed in early_breakout mode
-        (default 1.0 = 100%). Stocks above this are filtered as "already
+        Maximum trailing long-window return allowed in early_breakout mode
+        (default 1.5 = 150%). Stocks above this are filtered as "already
         extended."
+    short_lookback : int
+        Short window for acceleration signal in early_breakout mode
+        (default 21 = ~1 month).
+    min_short_return : float
+        Minimum short-window return required in early_breakout mode
+        (default 0.10 = 10%). Filters weak/ambiguous entries.
     """
 
     def __init__(
         self,
-        lookback_days: int = 252,
+        lookback_days: int = 126,
         skip_days: int = 21,
-        n_long: int = 10,
+        n_long: int = 15,
         rebalance_freq: int = 21,
         commission_bps: float = 5.0,
         slippage_bps: float = 5.0,
         mode: str = "early_breakout",
-        max_per_sector: int | None = 2,
-        max_12m_return: float = 1.0,
+        max_per_sector: int | None = 1,
+        max_12m_return: float = 1.5,
+        short_lookback: int = 21,
+        min_short_return: float = 0.10,
     ) -> None:
         self.lookback_days = lookback_days
         self.skip_days = skip_days
@@ -90,6 +98,8 @@ class CrossSectionalMomentum:
         self.mode = mode
         self.max_per_sector = max_per_sector
         self.max_12m_return = max_12m_return
+        self.short_lookback = short_lookback
+        self.min_short_return = min_short_return
 
     def _required_history(self) -> int:
         """Minimum number of trading days a stock needs to be rankable."""
@@ -178,38 +188,39 @@ class CrossSectionalMomentum:
     ) -> dict[str, float]:
         """Early-breakout momentum: rank by acceleration, filter moonshots."""
         scores: list[tuple[str, float]] = []
-        short_lookback = 63  # ~3 months
+        short_lb = self.short_lookback
+        long_lb = self.lookback_days
 
         for symbol, df in prices_dict.items():
             eligible = df.loc[df.index <= as_of_date, "close"]
-            if len(eligible) < self.lookback_days + 1:
+            if len(eligible) < long_lb + 1:
                 continue
-            if len(eligible) < short_lookback + 1:
+            if len(eligible) < short_lb + 1:
                 continue
 
             p_now = eligible.iloc[-1]
-            p_3m = eligible.iloc[-short_lookback] if len(eligible) >= short_lookback else None
-            p_12m = eligible.iloc[-self.lookback_days] if len(eligible) >= self.lookback_days else None
+            p_short = eligible.iloc[-short_lb] if len(eligible) >= short_lb else None
+            p_long = eligible.iloc[-long_lb] if len(eligible) >= long_lb else None
 
-            if p_3m is None or p_12m is None:
+            if p_short is None or p_long is None:
                 continue
-            if p_3m <= 0 or p_12m <= 0 or p_now <= 0:
+            if p_short <= 0 or p_long <= 0 or p_now <= 0:
                 continue
 
-            ret_3m = p_now / p_3m - 1.0
-            ret_12m = p_now / p_12m - 1.0
+            ret_short = p_now / p_short - 1.0
+            ret_long = p_now / p_long - 1.0
 
-            # Must be trending up recently
-            if ret_3m <= 0:
+            # Must be trending up recently (above minimum threshold)
+            if ret_short <= self.min_short_return:
                 continue
 
             # Filter extended moonshots
-            if ret_12m > self.max_12m_return:
+            if ret_long > self.max_12m_return:
                 continue
 
-            # Acceleration: 3-month return vs annualized 12-month pace
-            quarterly_pace = ret_12m / 4.0
-            accel = ret_3m - quarterly_pace
+            # Acceleration: short return vs long-term pace scaled to same window
+            long_pace = ret_long / (long_lb / short_lb)
+            accel = ret_short - long_pace
 
             scores.append((symbol, accel))
 
