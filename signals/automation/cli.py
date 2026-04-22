@@ -144,26 +144,15 @@ def _make_engine(
             min_short_return=0.10,
             rebalance_freq=21,
         )
-        # Use the full SP500 universe from the sector data, falling back
-        # to whatever tickers have data in the store
-        if sectors:
-            sp500_tickers = list(sectors.keys())
-        else:
-            # No sector CSV — scan parquet files for available tickers
-            sp500_tickers = [
-                d["symbol"] for d in data_store.list_datasets()
-                if d["interval"] == "1d" and d["rows"] >= 126
-            ]
-            if sp500_tickers:
-                console.print(
-                    f"[yellow]No sector data — using {len(sp500_tickers)} "
-                    f"tickers from data store[/yellow]"
-                )
+        # Use full universe (all tickers with data) — the 2026-04-21
+        # evaluation showed full-universe lifts Sharpe from 0.659 to 1.075.
+        # InsightsEngine._load_full_universe_tickers() discovers all
+        # available tickers from data/raw/.
         engine = InsightsEngine(
             signal_store=signal_store,
             cash_overlay=overlay,
             data_store=data_store,
-            tickers=sp500_tickers or None,
+            tickers=None,  # triggers full-universe auto-discovery
             use_multifactor=False,
             momentum_model=mom,
             sectors=sectors,

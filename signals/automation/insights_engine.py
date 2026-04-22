@@ -25,6 +25,32 @@ DEFAULT_MOMENTUM_TICKERS = [
     "COST", "ABBV", "CRM", "AMD", "NFLX",
 ]
 
+
+def _load_full_universe_tickers() -> list[str]:
+    """Load all tickers with price data from data/raw/.
+
+    The full-universe evaluation (2026-04-21) showed that expanding from
+    S&P 500 only (~500 tickers) to all available stocks (1100+) lifts
+    Sharpe from 0.659 to 1.075. This function discovers all available
+    tickers by scanning the raw data directory.
+    """
+    from pathlib import Path
+
+    raw_dir = Path(__file__).resolve().parent.parent.parent / "data" / "raw"
+    if not raw_dir.exists():
+        return DEFAULT_MOMENTUM_TICKERS
+    tickers = []
+    for f in raw_dir.glob("*_1d.parquet"):
+        ticker = f.stem.replace("_1d", "")
+        # Skip non-equity tickers (ETFs, crypto, indices)
+        if ticker.endswith("-USD") or ticker.startswith("^"):
+            continue
+        if ticker in ("SPY", "EFA", "TLT", "IEF", "GLD", "USO", "DBA",
+                       "VIX", "TNX", "UUP", "MDY", "IWM"):
+            continue
+        tickers.append(ticker)
+    return sorted(tickers) if tickers else DEFAULT_MOMENTUM_TICKERS
+
 # Default TSMOM asset classes (ETF proxies)
 DEFAULT_TSMOM_TICKERS = [
     "SPY",       # US equities
@@ -64,12 +90,12 @@ class InsightsEngine:
         self.signal_store = signal_store
         self.cash_overlay = cash_overlay
         self.data_store = data_store
-        self.tickers = tickers or DEFAULT_MOMENTUM_TICKERS
+        self.tickers = tickers or _load_full_universe_tickers()
         self.tsmom_tickers = tsmom_tickers or DEFAULT_TSMOM_TICKERS
         self.sectors = sectors
         self.momentum_model = momentum_model or CrossSectionalMomentum(
-            lookback_days=252, skip_days=21, n_long=10, rebalance_freq=21,
-            mode="early_breakout", max_per_sector=2,
+            lookback_days=252, skip_days=21, n_long=15, rebalance_freq=21,
+            mode="early_breakout", max_per_sector=2, short_lookback=63,
         )
         self.tsmom_model = tsmom_model or TimeSeriesMomentum(
             lookback_days=252, vol_window=63, risk_parity=True, rebalance_freq=21,
