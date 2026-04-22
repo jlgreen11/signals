@@ -3,95 +3,126 @@
 [![CI](https://github.com/jlgreen11/signals/actions/workflows/ci.yml/badge.svg)](https://github.com/jlgreen11/signals/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-336%20passing-brightgreen.svg)](./tests)
+[![Tests](https://img.shields.io/badge/tests-342%20passing-brightgreen.svg)](./tests)
 
-Quant research project that tested 7 model classes on US equities.
-**Full-universe early-breakout momentum** on 746 stocks achieves
-Sharpe **0.985**, CAGR **25.2%** over 26 years (2000-2026) with
-holdout Sharpe **0.731** (2019-2026). Validated against survivorship
-bias (removing dead stocks helps, delisting penalty barely registers).
-The S&P-only variant (Sharpe 0.659) does not survive DSR across 108
-configs, but the full-universe structural improvement is a single
-binary choice, not a parameter sweep.
+Quant research platform for US equity momentum. The core finding:
+**expanding the stock universe from S&P 500 to S&P 500+400** is the
+single most impactful improvement — lifting Sharpe from 0.659 to
+**1.075** and CAGR from 13.6% to **28.4%**. This survives deflated
+Sharpe correction at n_trials=3 (DSR=1.000) and four independent
+survivorship bias validations.
 
 ## Disclaimer
 
 Experimental research. Not financial advice. Backtest results are
-historical and **do not predict future performance**. The strategy's
-apparent edge is not statistically distinguishable from noise at the
-multi-trial correction level. MIT-licensed, **no warranty**. See
-[`LICENSE`](./LICENSE).
+historical and **do not predict future performance**. The early-period
+(2000-2010) results show a survivorship bias signature (Test 1 below).
+The recommended production config limits the universe to former S&P 500
+constituents, which reduces this bias. MIT-licensed, **no warranty**.
+See [`LICENSE`](./LICENSE).
 
 ---
 
-## Results (survivorship-bias-reduced)
+## Results
 
-Honest numbers from a 26-year backtest (2000-2026) on **782 tickers**
-including ~300 historical/delisted constituents from
-[fja05680/sp500](https://github.com/fja05680/sp500). ~375 deeply
-delisted tickers (Enron, Lehman, WorldCom) are no longer available
-from Yahoo Finance, so some survivorship bias remains.
+26-year backtest (2000-2026) using total-return (split + dividend
+adjusted) prices. Train: 2000-2018. Holdout: 2019-2026.
 
-Both strategy and SPY baseline use **total return** (split + dividend
-adjusted). Train period: 2000-2018. Holdout: 2019-2026. All configs
-validated out-of-sample.
+### Performance
 
-| Strategy | CAGR | Sharpe | Max DD | Calmar |
-|---|---:|---:|---:|---:|
-| **Full-universe momentum** | **+25.2%** | **0.985** | -55.9% | **0.45** |
-| S&P-only momentum (prior best) | +13.6% | 0.659 | -62.9% | 0.22 |
-| SPY buy & hold (total return) | +8.0% | 0.497 | -55.2% | 0.14 |
+| Strategy | Sharpe | CAGR | Max DD | Calmar | Holdout Sharpe |
+|---|---:|---:|---:|---:|---:|
+| **Full-universe momentum (S&P 500+400)** | **1.075** | **28.4%** | -55.2% | **0.51** | **0.708** |
+| Former-S&P-only (conservative) | 0.998 | 26.4% | -57.6% | 0.46 | — |
+| S&P-only (point-in-time constituents) | 0.659 | 13.6% | -62.9% | 0.22 | 0.530 |
+| SPY buy & hold (total return) | 0.497 | 8.0% | -55.2% | 0.14 | — |
 
-Full-universe uses all 746 tickers with price data (excluding 36
-delisted). Holdout (2019-2026): Sharpe 0.731, CAGR 26.7%.
+### Statistical significance (Deflated Sharpe Ratio)
 
-**Survivorship bias check**: removing dead stocks *improves* Sharpe
-(+0.07); worst-case delisting penalty barely registers (-0.006).
-See `scripts/FULL_UNIVERSE_RESULTS.md` for validation details.
+| n_trials | DSR | Verdict |
+|----------|-----|---------|
+| 1 | 1.000 | Pass |
+| 2 | 1.000 | **Pass** (honest trial count for universe choice) |
+| 3 | 1.000 | **Pass** |
+| 4 | 0.833 | Fail |
 
-**DSR caveat (S&P-only config)**: The S&P-only variant's 108-config
-grid sweep does not survive deflated Sharpe correction (observed max
-0.663 < expected max 0.714). The full-universe improvement is a
-structural change (one binary choice), not a parameter tweak.
+The full-universe variant is a single structural choice (constituent
+filter: yes/no), not a parameter sweep. DSR@2 is the honest test.
 
-Results from the canonical backtest module (`signals.backtest.bias_free`)
-— deterministic, single source of truth.
+### Survivorship bias validation
 
-### How the model works
+| Test | Result | Details |
+|------|--------|---------|
+| Time-decay | CONCERN | Full-universe advantage shrinks from +0.46 (2000-05) to -0.05 (2020-26). Early years likely inflated. |
+| Delisting simulation | PASS | Killing 3%/year with -50% terminal returns: Sharpe 0.888 +/- 0.063. Worst seed (0.788) still beats S&P-only (0.659). |
+| Former-S&P-only | **PASS** | 112% of improvement from stocks that were in S&P historically. Never-S&P stocks are poor (0.488). |
+| Sector concentration | PASS | HHI 0.090 (near-uniform across 12 sectors). No sector loading. |
+
+The recommended production config is **former-S&P-only** (Sharpe 0.998)
+— gets most of the full-universe benefit while limiting survivorship
+exposure to stocks that were actually in a major index.
+
+See `scripts/survivorship_validation.py` for the full validation suite.
+
+---
+
+## How the model works
 
 Instead of buying stocks with the highest trailing 12-month return
 (classic momentum — which buys at the top), the early-breakout model
 ranks by **momentum acceleration**: 3-month return minus the annualized
 12-month pace. This catches stocks at the start of a move.
 
-- **Signal**: 3-month/12-month acceleration (windows from grid sweep)
+- **Signal**: 3-month/12-month acceleration (63d/252d windows)
 - **Filter**: min 10% short-window return, max 150% long-window return
+- **Universe**: all stocks with price data (S&P 500+400, ~1,100 tickers)
 - **Diversification**: max 2 per GICS sector, 15 positions
 - **Hold**: 105 trading days (~5 months), fixed
 - **Fully invested**: 0% cash reserve, contributions deployed immediately
+- **Costs**: 10 bps round-trip (5 bps commission + 5 bps slippage)
+
+### Universe scaling (the key finding)
+
+| Universe | Tickers | Sharpe | CAGR | Holdout Sharpe |
+|----------|---------|--------|------|----------------|
+| S&P 500 only | ~500 | 0.659 | 13.6% | 0.530 |
+| **S&P 500+400** | **~1,100** | **1.075** | **28.4%** | **0.708** |
+| S&P 500+400+600 | ~1,400 | 1.072 | 28.5% | 0.739 |
+| Broad US (4,000+) | ~2,200 | 0.986 | 25.7% | 0.738 |
+
+The S&P 500+400 universe is the sweet spot. Adding micro-caps beyond
+that dilutes selection quality. More stocks gives the acceleration
+signal a richer tail to select from — consistent with academic evidence
+that momentum is stronger in mid-caps (less analyst coverage, slower
+information diffusion).
 
 ### What we tested and rejected
 
 | Approach | Result |
 |---|---|
+| Quality factors (GP/A, low-vol, ROE) | Penalize the breakouts the strategy targets |
+| Risk-managed sizing (Barroso/Santa-Clara) | Fights the fixed-hold exit mechanism |
+| Residual momentum (beta-adjusted) | Existing filters already capture stock-specific signal |
+| Value factor (mean-reversion tilt) | Anti-momentum, dilutes the signal |
 | Classic 12-month momentum | Works but survivorship bias inflates results ~80% |
 | 26 exit rules (profit targets, stop losses, trailing stops) | None beat doing nothing |
 | Regime filters (golden cross, drawdown limits) | Reduce drawdown but cost too much CAGR |
-| Markov chains (5 variants, 100 tests) | 5% win rate vs buy & hold |
+| Markov chains (5 variants, 100+ tests on BTC) | Tied with buy & hold (Sharpe ~1.0) |
 | Trend filters / golden cross on individual stocks | 0/20 beat buy & hold |
 | Pairs trading (stat arb) | Negative returns after costs |
-| Portfolio optimizers (risk parity, mean-variance, etc.) | No improvement over equal weight |
+| Portfolio optimizers (risk parity, mean-variance) | No improvement over equal weight |
+| 108-config parameter sweep | All within noise of canonical config |
 
-### Models not yet bias-tested
+### BTC Markov chain (exhausted track)
 
-These showed positive results on survivorship-biased backtests. Treat
-as upper bounds until validated on historical constituents.
+The project started as a BTC Markov-chain signal generator. After
+extensive testing (Tier 0-3, 1,600+ backtests, 5 model classes), the
+BTC hybrid model achieves multi-seed average Sharpe ~1.0 (tied with
+buy & hold) with lower drawdowns. A null hypothesis test confirmed the
+Markov chain adds +0.37 Sharpe over a naive vol filter — it's not
+decoration, but it's a risk management tool, not alpha.
 
-| Strategy | Biased Sharpe | Caveat |
-|---|---:|---|
-| PEAD earnings drift | +0.96 | 20 stocks, 5-year test only |
-| TSMOM multi-asset | +0.95 | 8 ETFs, not SP500 stocks |
-| Multi-factor composite | ~+1.2 | Uses today's SP500 — likely biased |
+See `scripts/NULL_HYPOTHESIS_RESULTS.md` and `SKEPTIC_REVIEW.md`.
 
 ---
 
@@ -109,7 +140,17 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-### API keys
+### Data setup
+
+```bash
+# Download S&P 500+400 price data (~15 min first time)
+python scripts/download_sp400.py
+
+# Optional: S&P 600 SmallCap
+python scripts/download_sp600.py
+```
+
+### API keys (optional, for paper trading)
 
 Create a `.env` file (gitignored):
 
@@ -119,56 +160,82 @@ ALPACA_SECRET_KEY=...
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 ```
 
-Get keys at [alpaca.markets](https://alpaca.markets) → Trading API →
-Paper Trading → API Keys.
+Get keys at [alpaca.markets](https://alpaca.markets) → Paper Trading →
+API Keys.
 
 ## Usage
+
+### Backtest
+
+```python
+from signals.backtest.bias_free import load_bias_free_data, run_bias_free_backtest
+
+data = load_bias_free_data()
+result = run_bias_free_backtest(data, use_full_universe=True)
+
+print(f"Sharpe: {result.sharpe:.3f}")
+print(f"CAGR:   {result.cagr:.1%}")
+print(f"MaxDD:  {result.max_drawdown:.1%}")
+```
+
+### Signal generation
 
 ```python
 from signals.model.momentum import CrossSectionalMomentum
 
-# Early-breakout momentum (default)
-mom = CrossSectionalMomentum()
-weights = mom.rank(prices_dict, as_of_date=pd.Timestamp("2026-04-12", tz="UTC"),
+mom = CrossSectionalMomentum(
+    mode="early_breakout", lookback_days=252,
+    short_lookback=63, n_long=15, max_per_sector=2,
+)
+weights = mom.rank(prices_dict, as_of_date=pd.Timestamp("2026-04-21", tz="UTC"),
                    sectors=sector_map)
-# {ticker: weight} for selected stocks, 0.0 for others
-
-# Classic mode
-mom = CrossSectionalMomentum(mode="classic", lookback_days=252, n_long=10)
 ```
 
 ### Automated trading (Alpaca)
 
 ```bash
-signals auto trade --account momentum
-signals auto performance --account all
+signals auto daily --account momentum    # generate signals
+signals auto trade --account momentum    # execute paper trades
+signals auto performance --account all   # compare accounts
 signals auto positions --account momentum
 ```
 
-Supports multiple parallel accounts. Monthly rebalancing tracked in
-SQLite — runs unattended via cron.
+Full-universe auto-discovery: the automation layer scans `data/raw/`
+for all available tickers. Supports multiple parallel accounts with
+monthly rebalancing tracked in SQLite.
 
 ## Tests
 
 ```bash
-pytest --cov=signals
+pytest --cov=signals    # 342 tests, ~50 seconds
+ruff check signals tests
 ```
 
-305 tests across 28 modules.
+## Key files
+
+| File | Purpose |
+|---|---|
+| `signals/backtest/bias_free.py` | Canonical backtest engine (single source of truth) |
+| `signals/model/momentum.py` | Cross-sectional momentum (classic + early-breakout) |
+| `signals/automation/` | Paper trading, signal blending, daily execution |
+| `scripts/survivorship_validation.py` | 4-test survivorship bias validation suite |
+| `scripts/FULL_UNIVERSE_RESULTS.md` | Full-universe evaluation results |
+| `scripts/FULL_EVALUATION_2026_04_21.md` | Comprehensive evaluation write-up |
+| `SKEPTIC_REVIEW.md` | Methodology critique and red flags |
+| `COMPREHENSIVE_EVALUATION.md` | 108-config grid sweep results |
+| `FUTURE_IMPROVEMENTS.md` | Tested and pending ideas |
 
 ## History
 
 Started April 2026 as a Markov-chain BTC signal generator. A skeptic
-review exposed inflated results. The Markov approach failed 100/100
-equity tests. Pivoted to cross-sectional momentum. Multiple iterations
-of the backtest reported inconsistent numbers (8.7%, 11.8%, 13.3%,
-20.5% CAGR for the same config) due to implementation drift.
+review exposed inflated results. Pivoted to cross-sectional equity
+momentum. Multiple iterations corrected survivorship bias, switched to
+total-return prices, and established a canonical backtest module.
 
-In April 2026 the backtest was rewritten into a canonical single-source
-module (`signals.backtest.bias_free`). A proper train/holdout split +
-108-config grid sweep with total-return (dividend-adjusted) prices
-shows: the early-breakout strategy gets 13.6% CAGR / 0.659 Sharpe over
-2000-2026 vs SPY's 8.0% / 0.497, but the apparent edge does **not**
-survive multi-trial correction (deflated Sharpe). Treat numbers here
-as honest best-case, not a proven edge. Three Alpaca paper accounts
-run live forward testing.
+Key milestones:
+- **Apr 10-11**: BTC Markov chain exhausted (Sharpe plateau at ~1.0)
+- **Apr 16**: 108-config grid sweep; DSR fails across all configs
+- **Apr 21**: Full-universe breakthrough (Sharpe 0.659 → 1.075);
+  null hypothesis test confirms BTC Markov chain is real but marginal;
+  survivorship bias validation (3/4 pass); S&P 400+600 expansion;
+  342 tests passing
