@@ -103,15 +103,28 @@ class InsightsEngine:
         return prices_dict
 
     def _refresh_prices(self, tickers: list[str]) -> None:
-        """Attempt to refresh price data (best-effort, no failure on error)."""
+        """Attempt to refresh price data (best-effort, no failure on error).
+
+        Only refreshes tickers whose latest data is more than 1 trading day
+        old, to avoid hammering Yahoo for 500+ tickers every run.
+        """
         if self.data_store is None:
             return
-        # Only attempt refresh if a pipeline is available
         try:
             from signals.data.pipeline import DataPipeline
             from signals.data.yahoo import YahooFinanceSource
             pipeline = DataPipeline(source=YahooFinanceSource(), store=self.data_store)
+
+            stale: list[str] = []
+            cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=3)
             for ticker in tickers:
+                last = self.data_store.last_timestamp(ticker, "1d")
+                if last is None or last < cutoff:
+                    stale.append(ticker)
+
+            if stale:
+                log.info("Refreshing %d/%d stale tickers", len(stale), len(tickers))
+            for ticker in stale:
                 try:
                     pipeline.refresh(ticker, interval="1d")
                 except Exception as e:

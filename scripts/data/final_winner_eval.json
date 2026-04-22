@@ -1,0 +1,53 @@
+[
+  {
+    "name": "A_original",
+    "hold_days": 105,
+    "n_long": 15,
+    "max_per_sector": 2,
+    "short": 21,
+    "long": 126,
+    "min_short_return": 0.1,
+    "max_long_return": 1.5,
+    "sharpe": 0.7509122290758997,
+    "cagr": 0.1834654724856577,
+    "max_dd": -0.7611269562733992,
+    "calmar": 0.24104450771778516,
+    "win_rate": 0.610062893081761,
+    "n_trades": 795,
+    "final_equity": 8359387.251348036
+  },
+  {
+    "name": "B_best_train",
+    "hold_days": 105,
+    "n_long": 15,
+    "max_per_sector": 2,
+    "short": 63,
+    "long": 252,
+    "min_short_return": 0.1,
+    "max_long_return": 1.5,
+    "sharpe": 0.9529509319372188,
+    "cagr": 0.2252725363608108,
+    "max_dd": -0.5724436891426669,
+    "calmar": 0.39352785371465143,
+    "win_rate": 0.5946601941747572,
+    "n_trades": 824,
+    "final_equity": 20812668.16431466
+  },
+  {
+    "name": "C_best_holdout",
+    "hold_days": 63,
+    "n_long": 15,
+    "max_per_sector": 2,
+    "short": 21,
+    "long": 126,
+    "min_short_return": 0.15,
+    "max_long_return": 1.5,
+    "sharpe": 0.9887790464021483,
+    "cagr": 0.272283549580554,
+    "max_dd": -0.6742303201436488,
+    "calmar": 0.40384352564052944,
+    "win_rate": 0.6310272536687631,
+    "n_trades": 954,
+    "final_equity": 55970397.393556885
+  }
+]

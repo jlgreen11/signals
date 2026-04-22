@@ -53,22 +53,50 @@ def _set_alpaca_keys(account: str) -> None:
 
 
 def _load_sp500_sectors() -> dict[str, str]:
-    """Load GICS sector mapping for SP500 tickers."""
+    """Load GICS sector mapping for SP500 tickers.
+
+    Checks three sources in order:
+    1. Project-local cache at data/sp500_sectors.csv
+    2. Legacy /tmp path
+    3. GitHub fallback (cached to project-local on success)
+    """
     from pathlib import Path
 
-    csv_path = Path("/tmp/sp500_with_sectors.csv")
-    if not csv_path.exists():
-        # Try fetching from the web
-        try:
-            import pandas as pd
-            url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
-            df = pd.read_csv(url)
-            return dict(zip(df["Symbol"], df["Sector"], strict=True))
-        except Exception:
-            return {}
     import pandas as pd
-    df = pd.read_csv(csv_path)
-    return dict(zip(df["Symbol"], df["GICS Sector"], strict=True))
+
+    project_cache = Path("data/sp500_sectors.csv")
+    legacy_path = Path("/tmp/sp500_with_sectors.csv")
+
+    # 1. Project-local cache (survives /tmp cleanup)
+    if project_cache.exists():
+        df = pd.read_csv(project_cache)
+        col = "GICS Sector" if "GICS Sector" in df.columns else "Sector"
+        sym = "Symbol" if "Symbol" in df.columns else df.columns[0]
+        return dict(zip(df[sym], df[col], strict=False))
+
+    # 2. Legacy /tmp path
+    if legacy_path.exists():
+        df = pd.read_csv(legacy_path)
+        col = "GICS Sector" if "GICS Sector" in df.columns else "Sector"
+        sym = "Symbol" if "Symbol" in df.columns else df.columns[0]
+        # Cache locally so it survives /tmp cleanup
+        df.to_csv(project_cache, index=False)
+        return dict(zip(df[sym], df[col], strict=False))
+
+    # 3. GitHub fallback
+    try:
+        url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+        df = pd.read_csv(url)
+        col = "GICS Sector" if "GICS Sector" in df.columns else "Sector"
+        # Cache locally
+        project_cache.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(project_cache, index=False)
+        return dict(zip(df["Symbol"], df[col], strict=False))
+    except Exception as e:
+        console.print(f"[yellow]Warning: could not load S&P 500 sectors: {e}[/yellow]")
+        return {}
+
+    return {}
 
 
 def _make_engine(
@@ -108,21 +136,34 @@ def _make_engine(
         )
         mom = CrossSectionalMomentum(
             mode="early_breakout",
-            lookback_days=126,
-            short_lookback=21,
+            lookback_days=252,
+            short_lookback=63,
             n_long=15,
             max_per_sector=2,
             max_12m_return=1.5,
             min_short_return=0.10,
             rebalance_freq=21,
         )
-        # Use the full SP500 universe from the sector data
-        sp500_tickers = list(sectors.keys()) if sectors else None
+        # Use the full SP500 universe from the sector data, falling back
+        # to whatever tickers have data in the store
+        if sectors:
+            sp500_tickers = list(sectors.keys())
+        else:
+            # No sector CSV — scan parquet files for available tickers
+            sp500_tickers = [
+                d["symbol"] for d in data_store.list_datasets()
+                if d["interval"] == "1d" and d["rows"] >= 126
+            ]
+            if sp500_tickers:
+                console.print(
+                    f"[yellow]No sector data — using {len(sp500_tickers)} "
+                    f"tickers from data store[/yellow]"
+                )
         engine = InsightsEngine(
             signal_store=signal_store,
             cash_overlay=overlay,
             data_store=data_store,
-            tickers=sp500_tickers,
+            tickers=sp500_tickers or None,
             use_multifactor=False,
             momentum_model=mom,
             sectors=sectors,

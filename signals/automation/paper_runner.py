@@ -115,8 +115,83 @@ class PaperTradeRunner:
                 n_trades INTEGER NOT NULL
             )
         """)
+        # Fixed-hold entry tracking. Matches canonical backtest behavior:
+        # each position has a fixed entry_date and exits after hold_days.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_entries (
+                ticker TEXT PRIMARY KEY,
+                entry_date TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                sector TEXT
+            )
+        """)
         conn.commit()
         conn.close()
+
+    # ------------------------------------------------------------------
+    # Entry tracking (per-position entry_date for fixed-hold logic)
+    # ------------------------------------------------------------------
+
+    def _record_entry(self, ticker: str, entry_price: float, sector: str = "Unknown") -> None:
+        """Record the entry date for a new position."""
+        conn = sqlite3.connect(self._db_path)
+        conn.execute(
+            "INSERT OR REPLACE INTO paper_entries (ticker, entry_date, entry_price, sector) VALUES (?, ?, ?, ?)",
+            (ticker, datetime.now(tz=UTC).isoformat(), entry_price, sector),
+        )
+        conn.commit()
+        conn.close()
+
+    def _delete_entry(self, ticker: str) -> None:
+        """Remove the entry record when a position is closed."""
+        conn = sqlite3.connect(self._db_path)
+        conn.execute("DELETE FROM paper_entries WHERE ticker = ?", (ticker,))
+        conn.commit()
+        conn.close()
+
+    def _get_entries(self) -> dict[str, dict]:
+        """Return {ticker: {entry_date, entry_price, sector}} for all tracked positions."""
+        conn = sqlite3.connect(self._db_path)
+        try:
+            rows = conn.execute(
+                "SELECT ticker, entry_date, entry_price, sector FROM paper_entries"
+            ).fetchall()
+        finally:
+            conn.close()
+        return {
+            r[0]: {"entry_date": r[1], "entry_price": r[2], "sector": r[3] or "Unknown"}
+            for r in rows
+        }
+
+    def _trading_days_between(self, start_iso: str, end: datetime) -> int:
+        """Approximate trading-day count between two dates (weekdays only)."""
+        from datetime import timedelta
+        start = datetime.fromisoformat(start_iso)
+        days = 0
+        d = start
+        while d.date() < end.date():
+            d += timedelta(days=1)
+            if d.weekday() < 5:
+                days += 1
+        return days
+
+    def _reconcile_entries(self) -> None:
+        """Sync paper_entries with actual broker positions.
+
+        - Positions in broker but not in entries -> insert with entry_date=now.
+          (Used when an external process opened a position, or on first run
+          with pre-existing positions.)
+        - Entries in table but not in broker -> delete.
+        """
+        held = {p.symbol for p in self._broker.get_positions()}
+        tracked = set(self._get_entries().keys())
+        # Orphaned entries: position closed externally
+        for ticker in tracked - held:
+            self._delete_entry(ticker)
+        # Untracked positions: record entry_date=now as best effort
+        for pos in self._broker.get_positions():
+            if pos.symbol not in tracked:
+                self._record_entry(pos.symbol, pos.avg_price)
 
     def _save_state(self) -> None:
         """Persist current positions and cash to SQLite."""
@@ -273,123 +348,141 @@ class PaperTradeRunner:
         self,
         earnings_df: pd.DataFrame | None = None,
         rebalance_freq: int = 21,
+        hold_days: int = 105,
+        n_long: int = 15,
+        max_per_sector: int = 2,
     ) -> dict:
-        """Run the insights engine, rebalance if due, track equity daily.
+        """Run the insights engine and execute the fixed-hold strategy.
 
-        The rebalance_freq parameter controls how many trading days must
-        pass between rebalances (default 21 = monthly). On non-rebalance
-        days the method still runs signals and records equity, but does
-        NOT submit any orders. This matches the backtest behavior where
-        the portfolio rides between rebalance points.
+        This mirrors the canonical backtest (`bias_free.run_bias_free_backtest`):
 
-        Steps:
-        1. Check if rebalance is due (trading days since last >= rebalance_freq)
-        2. Run engine.run_daily() for signal generation + reporting
-        3. If rebalance due: compute orders and execute
-        4. If not due: log "no rebalance" and skip trading
-        5. Record daily equity either way
+        1. Run engine.run_daily() for signal generation + reporting
+        2. Reconcile entry tracking with broker positions
+        3. FIXED-HOLD EXITS: sell any position held >= hold_days
+        4. On rebalance day (every rebalance_freq trading days):
+           - Get momentum top-N candidates from engine
+           - BUY any candidate not currently held (subject to sector cap)
+           - Equal-weight size new positions against total equity
+        5. Record daily equity
         """
         now = datetime.now(tz=UTC)
-        days_since = self._get_trading_days_since_last_rebalance()
-        is_rebalance_day = days_since >= rebalance_freq
 
-        # Step 1: Run daily signals (always — for reporting and signal storage)
+        # Step 1: Signal generation
         report = self.engine.run_daily(earnings_df)
-        blended = report["blended_allocation"]
+        momentum_targets = report.get("momentum_targets", {})
 
-        # Step 2: Update prices
+        # Step 2: Update prices and reconcile entries
         self._update_prices()
+        self._reconcile_entries()
+        entries = self._get_entries()
 
-        if not is_rebalance_day:
-            # Not a rebalance day — just record equity and return
-            equity = self._compute_equity()
-            eq_record = {
-                "timestamp": now.isoformat(),
-                "date": now.strftime("%Y-%m-%d"),
-                "equity": equity,
-                "cash": self._broker.get_cash(),
-                "n_positions": len(self._broker.get_positions()),
-                "n_trades": 0,
-            }
-            self._daily_equity.append(eq_record)
-            self._persist_equity(eq_record)
-            log.info(
-                "No rebalance due (%d/%d trading days since last). "
-                "Next rebalance in ~%d days.",
-                days_since, rebalance_freq, rebalance_freq - days_since,
-            )
-            return {
-                "timestamp": now.isoformat(),
-                "report": report,
-                "executed_orders": [],
-                "n_orders": 0,
-                "equity": equity,
-                "cash": self._broker.get_cash(),
-                "positions": self._get_position_values(),
-                "rebalance": False,
-                "days_since_rebalance": days_since,
-                "next_rebalance_in": rebalance_freq - days_since,
-            }
-
-        # Rebalance day — compute and execute orders
-        log.info("REBALANCE DAY (%d days since last)", days_since)
-
-        # Step 3: Get current positions
-        current_positions = self._get_position_values()
-
-        # Step 4: Compute rebalance orders
-        target_positions = {
-            k: v for k, v in blended.items() if k != "_CASH"
-        }
-        orders = self.engine.cash_overlay.rebalance_orders(
-            current_positions=current_positions,
-            target_positions=target_positions,
-            prices=self._prices,
-        )
-
-        # Step 5: Execute orders through broker
         executed_orders: list[dict] = []
-        for order_spec in orders:
-            ticker = order_spec["ticker"]
+
+        # Step 3: Fixed-hold exits — sell positions that have held >= hold_days
+        exits: list[str] = []
+        for pos in self._broker.get_positions():
+            ticker = pos.symbol
+            if ticker not in entries:
+                continue
+            days_held = self._trading_days_between(entries[ticker]["entry_date"], now)
+            if days_held >= hold_days:
+                exits.append(ticker)
+
+        for ticker in exits:
             price = self._prices.get(ticker, 0.0)
             if price <= 0:
-                log.warning("No price for %s, skipping order", ticker)
+                log.warning("Cannot exit %s — no price", ticker)
                 continue
-
-            shares = order_spec["shares"]
-            if shares < 0.001:
+            pos = next((p for p in self._broker.get_positions() if p.symbol == ticker), None)
+            if pos is None:
                 continue
-
+            shares = pos.qty
             try:
-                side = (
-                    OrderSide.BUY
-                    if order_spec["action"] == "BUY"
-                    else OrderSide.SELL
-                )
                 order = Order(
-                    symbol=ticker,
-                    side=side,
-                    qty=shares,
+                    symbol=ticker, side=OrderSide.SELL, qty=shares,
                     order_type=OrderType.MARKET,
                 )
                 self._broker.submit_order(order)
                 executed_orders.append({
-                    "timestamp": now.isoformat(),
-                    "ticker": ticker,
-                    "action": order_spec["action"],
-                    "shares": shares,
-                    "price": price,
-                    "notional": order_spec["notional"],
+                    "timestamp": now.isoformat(), "ticker": ticker,
+                    "action": "SELL_HOLD_EXPIRED", "shares": shares,
+                    "price": price, "notional": shares * price,
                 })
+                self._delete_entry(ticker)
             except ValueError as e:
-                log.warning("Order failed for %s: %s", ticker, e)
+                log.warning("Exit failed for %s: %s", ticker, e)
 
-        # Step 6: Log trades (in-memory + persist to SQLite)
+        # Step 4: Rebalance day — add new entries
+        days_since = self._get_trading_days_since_last_rebalance()
+        is_rebalance_day = days_since >= rebalance_freq
+
+        if is_rebalance_day and momentum_targets:
+            log.info("REBALANCE DAY (%d days since last)", days_since)
+
+            # Current holdings after exits
+            current_tickers = {p.symbol for p in self._broker.get_positions()}
+            current_sectors: dict[str, int] = {}
+            sectors_map = self.engine.sectors or {}
+            for ticker in current_tickers:
+                sec = sectors_map.get(ticker, "Unknown")
+                current_sectors[sec] = current_sectors.get(sec, 0) + 1
+
+            # Candidates: momentum picks ranked by weight, not already held
+            candidates = sorted(
+                ((t, w) for t, w in momentum_targets.items()
+                 if t not in current_tickers and w > 0),
+                key=lambda x: x[1], reverse=True,
+            )
+
+            # Fill to n_long with sector cap
+            n_slots = n_long - len(current_tickers)
+            selected: list[str] = []
+            for ticker, _weight in candidates:
+                if len(selected) >= n_slots:
+                    break
+                sec = sectors_map.get(ticker, "Unknown")
+                if current_sectors.get(sec, 0) >= max_per_sector:
+                    continue
+                selected.append(ticker)
+                current_sectors[sec] = current_sectors.get(sec, 0) + 1
+
+            # Equal-weight sizing across target portfolio
+            if selected:
+                equity = self._compute_equity()
+                target_n = max(len(current_tickers) + len(selected), n_long)
+                per_pos = equity / target_n
+
+                for ticker in selected:
+                    price = self._prices.get(ticker, 0.0)
+                    if price <= 0:
+                        log.warning("No price for %s, skipping", ticker)
+                        continue
+                    shares = per_pos / price
+                    if shares < 0.001:
+                        continue
+                    try:
+                        order = Order(
+                            symbol=ticker, side=OrderSide.BUY, qty=shares,
+                            order_type=OrderType.MARKET,
+                        )
+                        self._broker.submit_order(order)
+                        sec = sectors_map.get(ticker, "Unknown")
+                        self._record_entry(ticker, price, sec)
+                        executed_orders.append({
+                            "timestamp": now.isoformat(), "ticker": ticker,
+                            "action": "BUY", "shares": shares,
+                            "price": price, "notional": per_pos,
+                        })
+                    except ValueError as e:
+                        log.warning("Buy failed for %s: %s", ticker, e)
+
+            self._record_rebalance()
+
+        # Step 5: Persist trades + equity
         self._trade_log.extend(executed_orders)
         for trade in executed_orders:
             self._persist_trade(trade)
 
-        # Step 7: Compute daily equity and persist
         equity = self._compute_equity()
         eq_record = {
             "timestamp": now.isoformat(),
@@ -402,13 +495,8 @@ class PaperTradeRunner:
         self._daily_equity.append(eq_record)
         self._persist_equity(eq_record)
 
-        # Step 8: Save position state to SQLite (local paper broker only;
-        # Alpaca tracks its own state server-side)
         if not self._use_alpaca:
             self._save_state()
-
-        # Step 9: Record this as the last rebalance date
-        self._record_rebalance()
 
         return {
             "timestamp": now.isoformat(),
@@ -418,8 +506,10 @@ class PaperTradeRunner:
             "equity": equity,
             "cash": self._broker.get_cash(),
             "positions": self._get_position_values(),
-            "rebalance": True,
+            "rebalance": is_rebalance_day,
             "days_since_rebalance": days_since,
+            "n_exits": len(exits),
+            "next_rebalance_in": max(0, rebalance_freq - days_since),
         }
 
     def _get_position_values(self) -> dict[str, float]:

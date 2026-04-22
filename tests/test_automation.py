@@ -68,6 +68,12 @@ class FakeDataStore:
     def load(self, symbol: str, interval: str) -> pd.DataFrame:
         return self._prices.get(symbol, pd.DataFrame())
 
+    def last_timestamp(self, symbol: str, interval: str) -> pd.Timestamp | None:
+        df = self._prices.get(symbol, pd.DataFrame())
+        if df.empty:
+            return None
+        return df.index.max()
+
 
 # ---------------------------------------------------------------------------
 # SignalStore tests
