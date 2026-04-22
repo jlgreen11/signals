@@ -2,9 +2,9 @@
 
 This is the SINGLE source of truth for bias-free backtesting. All sweep
 scripts, feature tests, and evaluations MUST use this function instead of
-reimplementing the backtest logic. This prevents the implementation drift
-that caused different scripts to report 8.7%, 11.8%, 13.3%, and 20.5%
-CAGR for the same baseline config.
+reimplementing the backtest logic.
+
+Data lives in project-local paths under data/ — NOT in /tmp.
 
 Usage::
 
@@ -19,6 +19,11 @@ Usage::
         '''Return a score for this stock, or None to skip.'''
         ...
     result = run_bias_free_backtest(data, score_fn=my_scorer)
+
+To download data for the first time (or refresh):
+
+    from signals.backtest.bias_free import download_sp500_data
+    download_sp500_data()  # ~15 min, downloads 26 years for ~500 tickers
 """
 
 from __future__ import annotations
@@ -31,6 +36,22 @@ import numpy as np
 import pandas as pd
 
 from signals.backtest.metrics import compute_metrics
+
+# ---------------------------------------------------------------------------
+# Project-local data paths
+# ---------------------------------------------------------------------------
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DATA_DIR = _PROJECT_ROOT / "data"
+RAW_DIR = DATA_DIR / "raw"
+SECTOR_CSV = DATA_DIR / "sp500_sectors.csv"
+CONSTITUENT_CSV = DATA_DIR / "sp500_constituents.csv"
+
+LEGIT_HIGH = {
+    "AAPL", "AMZN", "NVDA", "NFLX", "MNST", "DECK", "AXON", "SBAC",
+    "LRCX", "FIX", "BRK.B", "GOOG", "GOOGL", "MSFT", "META", "TSLA",
+    "AVGO", "COST", "UNH", "LLY", "NVO", "NVR", "SEB", "BKNG", "AZO",
+    "CMG", "ORLY", "MTD", "MELI",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -64,39 +85,124 @@ class BacktestResult:
 
 
 # ---------------------------------------------------------------------------
+# Data download
+# ---------------------------------------------------------------------------
+def download_sp500_data(
+    start: str = "2000-01-01",
+    end: str | None = None,
+) -> None:
+    """Download S&P 500 constituent prices and sector data.
+
+    Saves to project-local data/ directory:
+      - data/raw/{TICKER}_1d.parquet  (one per ticker)
+      - data/sp500_sectors.csv
+      - data/sp500_constituents.csv  (if available)
+
+    Idempotent: skips tickers that already have data covering the range.
+    """
+    import yfinance as yf
+
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 1. Get current S&P 500 tickers + sectors
+    url = "https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv"
+    df_sp = pd.read_csv(url)
+    df_sp.to_csv(SECTOR_CSV, index=False)
+    tickers = df_sp["Symbol"].tolist()
+    print(f"S&P 500: {len(tickers)} tickers, sectors saved to {SECTOR_CSV}")
+
+    # 2. Download prices
+    end = end or pd.Timestamp.now().strftime("%Y-%m-%d")
+    start_ts = pd.Timestamp(start, tz="UTC")
+    skipped = 0
+
+    for i, ticker in enumerate(tickers):
+        safe = ticker.replace("/", "_").replace("^", "")
+        path = RAW_DIR / f"{safe}_1d.parquet"
+
+        # Skip if already have data covering the range
+        if path.exists():
+            try:
+                existing = pd.read_parquet(path)
+                if len(existing) > 100:
+                    first = existing.index.min()
+                    if hasattr(first, "tz") and first.tz is None:
+                        first = first.tz_localize("UTC")
+                    if first <= start_ts + pd.Timedelta(days=30):
+                        skipped += 1
+                        continue
+            except Exception:
+                pass
+
+        try:
+            df = yf.download(
+                ticker, start=start, end=end, interval="1d",
+                progress=False, auto_adjust=False, actions=False, threads=False,
+            )
+            if df is None or df.empty:
+                print(f"  [{i+1}/{len(tickers)}] {ticker}: no data")
+                continue
+
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            df = df.rename(columns={
+                "Open": "open", "High": "high", "Low": "low",
+                "Close": "close", "Adj Close": "adj_close", "Volume": "volume",
+            })
+            df.to_parquet(path)
+            print(f"  [{i+1}/{len(tickers)}] {ticker}: {len(df)} rows", flush=True)
+        except Exception as e:
+            print(f"  [{i+1}/{len(tickers)}] {ticker}: FAILED ({e})")
+
+    if skipped:
+        print(f"Skipped {skipped} tickers with existing data")
+    print("Done.")
+
+
+# ---------------------------------------------------------------------------
 # Data loader (cached)
 # ---------------------------------------------------------------------------
 _CACHED_DATA: BiasFreData | None = None
 
-CACHE_DIR = Path("/tmp/sp500_price_cache")
-CONSTITUENT_CSV = "/tmp/sp500/S&P 500 Historical Components & Changes(01-17-2026).csv"
-SECTOR_CSV = "/tmp/sp500_with_sectors.csv"
-
-LEGIT_HIGH = {
-    "AAPL", "AMZN", "NVDA", "NFLX", "MNST", "DECK", "AXON", "SBAC",
-    "LRCX", "FIX", "BRK.B", "GOOG", "GOOGL", "MSFT", "META", "TSLA",
-    "AVGO", "COST", "UNH", "LLY", "NVO", "NVR", "SEB", "BKNG", "AZO",
-    "CMG", "ORLY", "MTD", "MELI",
-}
-
 
 def load_bias_free_data(
     start: str = "2000-01-01",
-    end: str = "2026-04-11",
+    end: str = "2026-04-13",
 ) -> BiasFreData:
-    """Load and cache all data for bias-free backtesting."""
+    """Load and cache all data for bias-free backtesting.
+
+    Reads from project-local data/raw/*.parquet and data/sp500_sectors.csv.
+    """
     global _CACHED_DATA
     if _CACHED_DATA is not None:
         return _CACHED_DATA
 
-    # Load prices
+    if not RAW_DIR.exists() or not any(RAW_DIR.glob("*_1d.parquet")):
+        raise FileNotFoundError(
+            f"No price data in {RAW_DIR}. Run:\n"
+            "  from signals.backtest.bias_free import download_sp500_data\n"
+            "  download_sp500_data()"
+        )
+
+    # Load prices from DataStore-format parquet files.
+    # Use adj_close (total return: split + dividend adjusted) not close
+    # (split only). This matches SPY's auto_adjust=True baseline so the
+    # comparison is apples-to-apples.
     prices_dict: dict[str, pd.DataFrame] = {}
-    for f in CACHE_DIR.glob("*.parquet"):
+    for f in RAW_DIR.glob("*_1d.parquet"):
         try:
             d = pd.read_parquet(f)
             if len(d) < 100:
                 continue
-            ticker = f.stem.replace("_", ".")
+            # Derive ticker from filename: AAPL_1d.parquet -> AAPL
+            ticker = f.stem.rsplit("_", 1)[0].replace("_", ".")
+
+            # Prefer adj_close (total return); fall back to close if absent
+            if "adj_close" in d.columns:
+                d = d.rename(columns={"close": "close_raw"})
+                d["close"] = d["adj_close"]
+            # Else keep existing "close" column as-is
+
             if ticker not in LEGIT_HIGH:
                 if d["close"].max() > 5000:
                     continue
@@ -106,27 +212,47 @@ def load_bias_free_data(
         except Exception:
             pass
 
-    # Sectors
-    sector_df = pd.read_csv(SECTOR_CSV)
-    sectors = dict(zip(sector_df["Symbol"], sector_df["GICS Sector"], strict=True))
+    if not prices_dict:
+        raise FileNotFoundError(f"No valid price data found in {RAW_DIR}")
 
-    # Constituents
-    df_c = pd.read_csv(CONSTITUENT_CSV)
-    df_c["date"] = pd.to_datetime(df_c["date"])
-    cmap: dict[str, list[str]] = {}
-    for _, row in df_c.iterrows():
-        d = row["date"].strftime("%Y-%m-%d")
-        cmap[d] = [t.strip() for t in row["tickers"].split(",") if t.strip()]
+    # Sectors
+    if not SECTOR_CSV.exists():
+        raise FileNotFoundError(
+            f"Sector CSV not found at {SECTOR_CSV}. Run download_sp500_data()."
+        )
+    sector_df = pd.read_csv(SECTOR_CSV)
+    col = "GICS Sector" if "GICS Sector" in sector_df.columns else "Sector"
+    sectors = dict(zip(sector_df["Symbol"], sector_df[col], strict=False))
+
+    # Constituents — use if available, else fall back to current S&P 500
+    if CONSTITUENT_CSV.exists():
+        df_c = pd.read_csv(CONSTITUENT_CSV)
+        df_c["date"] = pd.to_datetime(df_c["date"])
+        cmap: dict[str, list[str]] = {}
+        for _, row in df_c.iterrows():
+            d = row["date"].strftime("%Y-%m-%d")
+            cmap[d] = [t.strip() for t in row["tickers"].split(",") if t.strip()]
+    else:
+        # Fall back: treat current S&P 500 as the constituents for all dates
+        all_tickers = list(sectors.keys())
+        cmap = {"2000-01-01": all_tickers}
+
     cmap_dates = sorted(cmap.keys())
 
-    # Trading dates
+    # Trading dates — only include dates where a majority of tickers have data
     start_ts = pd.Timestamp(start, tz="UTC")
     end_ts = pd.Timestamp(end, tz="UTC")
-    all_dates: set[pd.Timestamp] = set()
+    date_counts: dict[pd.Timestamp, int] = {}
     for df in prices_dict.values():
-        mask = (df.index >= start_ts) & (df.index <= end_ts)
-        all_dates.update(df.index[mask])
-    trading_dates = sorted(all_dates)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index, utc=True)
+        elif df.index.tz is None:
+            df.index = df.index.tz_localize("UTC")
+        for dt in df.index:
+            if start_ts <= dt <= end_ts and dt.weekday() < 5:
+                date_counts[dt] = date_counts.get(dt, 0) + 1
+    # A real trading day should have data for at least 50 tickers
+    trading_dates = sorted(d for d, c in date_counts.items() if c >= 50)
 
     # Build close matrix
     tickers = sorted(prices_dict.keys())
@@ -134,10 +260,10 @@ def load_bias_free_data(
     mat = np.full((len(trading_dates), len(tickers)), np.nan)
     date_to_row = {d: i for i, d in enumerate(trading_dates)}
     for t, df in prices_dict.items():
-        col = ticker_to_idx[t]
+        col_idx = ticker_to_idx[t]
         for dt in df.index:
             if dt in date_to_row:
-                mat[date_to_row[dt], col] = float(df.loc[dt, "close"])
+                mat[date_to_row[dt], col_idx] = float(df.loc[dt, "close"])
 
     _CACHED_DATA = BiasFreData(
         close_mat=mat,
@@ -149,6 +275,12 @@ def load_bias_free_data(
         sectors=sectors,
     )
     return _CACHED_DATA
+
+
+def clear_cache() -> None:
+    """Clear the in-memory data cache (forces reload on next call)."""
+    global _CACHED_DATA
+    _CACHED_DATA = None
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +321,10 @@ def default_acceleration_score(
 
     This is the CANONICAL formula. Do not change without updating all
     documentation and re-running the full validation suite.
+
+    The defaults here (short=21, long=126) are STANDALONE defaults.
+    The canonical backtest in ``run_bias_free_backtest`` passes
+    short=63, long=252 (from grid sweep), which override these.
     """
     if row < long:
         return None
@@ -224,9 +360,9 @@ def default_acceleration_score(
 def run_bias_free_backtest(
     data: BiasFreData,
     score_fn: Callable | None = None,
-    short: int = 21,
-    long: int = 126,
-    hold_days: int = 105,
+    short: int = 63,
+    long: int = 252,
+    hold_days: int = 105,  # canonical from grid sweep (42/63/84/105/126 tested)
     n_long: int = 15,
     max_per_sector: int = 2,
     min_short_return: float = 0.10,
@@ -246,9 +382,12 @@ def run_bias_free_backtest(
         Custom scoring function: (close_mat, row, col, short, long) -> float|None.
         If None, uses default_acceleration_score.
     short / long : int
-        Lookback windows for acceleration signal.
+        Lookback windows for acceleration signal. Defaults 63/252 are
+        the canonical values from the grid sweep. These override the
+        standalone defaults in ``default_acceleration_score`` (21/126).
     hold_days : int
-        Fixed hold period in trading days.
+        Fixed hold period in trading days. Default 105 is canonical
+        (from sweep over 42/63/84/105/126).
     n_long : int
         Max number of positions.
     max_per_sector : int

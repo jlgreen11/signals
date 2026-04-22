@@ -136,6 +136,7 @@ class PaperTradeLog:
             "entries": [e.to_dict() for e in self.entries],
         }
         path.write_text(json.dumps(payload, indent=2))
+        path.chmod(0o600)
         return path
 
     @classmethod

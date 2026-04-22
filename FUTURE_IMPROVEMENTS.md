@@ -19,8 +19,11 @@ and conclusively resolved.
   contributions. Fully invested (0% reserve) is optimal.
 - **Classic 12-month momentum**: survivorship bias inflates results ~80%.
   Early-breakout acceleration signal is strictly better.
-- **Acceleration window**: 21d/126d (1-month vs 6-month) beats all other
-  short/long window combinations (12 tested).
+- **Acceleration window**: 63d/252d (3-month vs 12-month) beats all other
+  short/long window combinations (12 tested). Note: the scoring function
+  `default_acceleration_score` has its own defaults of 21/126, but the
+  canonical backtest (`run_bias_free_backtest`) passes short=63, long=252,
+  which override those defaults.
 - **Hold period**: 105 trading days (~5 months) is optimal across 5
   hold periods tested (42/63/84/105/126).
 - **Sector cap**: 2/sector maximizes CAGR; 1/sector maximizes Sharpe but

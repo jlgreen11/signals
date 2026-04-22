@@ -35,6 +35,7 @@ from signals.model.homc import HigherOrderMarkovChain
 from signals.model.hybrid import DEFAULT_ROUTING, HybridRegimeModel
 from signals.model.signals import SignalGenerator
 from signals.model.trend import DualMovingAverage, TrendFilter
+from signals.model.vol_filter import NaiveVolFilter
 from signals.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -42,7 +43,7 @@ log = get_logger(__name__)
 
 @dataclass
 class BacktestConfig:
-    model_type: str = "composite"     # "composite" | "hmm" | "homc" | "hybrid" | "trend" | "golden_cross" | "boost"
+    model_type: str = "composite"     # "composite" | "hmm" | "homc" | "hybrid" | "trend" | "golden_cross" | "boost" | "vol_filter"
     train_window: int = 252
     retrain_freq: int = 21
     n_states: int = 9                 # composite: ignored (uses return_bins×vol_bins); homc/hmm: used
@@ -95,6 +96,8 @@ class BacktestConfig:
     hybrid_adaptive_low: float = 0.60      # adaptive-vol low-regime threshold quantile
     hybrid_adaptive_high: float = 0.80     # adaptive-vol high-regime threshold quantile
     hybrid_adaptive_lookback: int = 30     # bars of recent vol to average for regime detection
+    # Naive vol filter (null hypothesis baseline — see signals/model/vol_filter.py):
+    vol_filter_quantile: float = 0.50  # match hybrid's default for fair comparison
     # Trend-filter models (for equity indices — see signals/model/trend.py):
     trend_window: int = 200                # single-MA trend filter window
     trend_fast_window: int = 50            # dual-MA fast window
@@ -153,6 +156,25 @@ class BacktestConfig:
     vol_target_periods_per_year: int = 365  # BTC trades daily; use 252 for equities
     vol_target_max_scale: float = 2.0
     vol_target_min_scale: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.train_window < 10:
+            raise ValueError(f"train_window must be >= 10, got {self.train_window}")
+        if self.retrain_freq < 1:
+            raise ValueError(f"retrain_freq must be >= 1, got {self.retrain_freq}")
+        if self.retrain_freq > self.train_window:
+            raise ValueError(
+                f"retrain_freq ({self.retrain_freq}) must be <= "
+                f"train_window ({self.train_window})"
+            )
+        if not 0.0 <= self.hybrid_vol_quantile <= 1.0:
+            raise ValueError(
+                f"hybrid_vol_quantile must be in [0, 1], got {self.hybrid_vol_quantile}"
+            )
+        if self.max_long < 0:
+            raise ValueError(f"max_long must be >= 0, got {self.max_long}")
+        if self.initial_cash <= 0:
+            raise ValueError(f"initial_cash must be > 0, got {self.initial_cash}")
 
 
 #: Round-3 large-grid search winner for BTC hybrid — the current "best
@@ -267,6 +289,11 @@ class BacktestEngine:
             return DualMovingAverage(
                 fast_window=cfg.trend_fast_window,
                 slow_window=cfg.trend_slow_window,
+            )
+        if cfg.model_type == "vol_filter":
+            return NaiveVolFilter(
+                vol_window=cfg.vol_window,
+                quantile=cfg.vol_filter_quantile,
             )
         if cfg.model_type == "hybrid":
             return HybridRegimeModel(
@@ -402,7 +429,12 @@ class BacktestEngine:
                 )
                 bars_since_retrain = 0
 
-            assert model is not None and generator is not None
+            if model is None or generator is None:
+                raise RuntimeError(
+                    f"Model/generator not initialized by bar {i}. "
+                    f"Check that train_window ({self.config.train_window}) "
+                    f"<= data length ({len(feats)}) and initial fit succeeded."
+                )
 
             inference_window = feats.iloc[i - self.config.train_window + 1 : i + 1]
             try:

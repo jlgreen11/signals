@@ -116,3 +116,31 @@ def test_engine_supports_shorts_and_stops(synthetic_prices):
     sides = {t.side for t in result.trades}
     # We should see at least BUY/SELL/SHORT/COVER somewhere across the run.
     assert "BUY" in sides or "SHORT" in sides
+
+
+# --- BacktestConfig validation ---
+
+
+def test_config_rejects_tiny_train_window():
+    with pytest.raises(ValueError, match="train_window must be >= 10"):
+        BacktestConfig(train_window=5)
+
+
+def test_config_rejects_retrain_gt_train():
+    with pytest.raises(ValueError, match="retrain_freq.*must be <= .*train_window"):
+        BacktestConfig(train_window=100, retrain_freq=200)
+
+
+def test_config_rejects_bad_vol_quantile():
+    with pytest.raises(ValueError, match="hybrid_vol_quantile"):
+        BacktestConfig(hybrid_vol_quantile=1.5)
+
+
+def test_config_rejects_negative_max_long():
+    with pytest.raises(ValueError, match="max_long"):
+        BacktestConfig(max_long=-1.0)
+
+
+def test_config_rejects_zero_cash():
+    with pytest.raises(ValueError, match="initial_cash"):
+        BacktestConfig(initial_cash=0)

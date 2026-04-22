@@ -6,10 +6,11 @@ Two ranking modes:
    skip most recent month. Buys the biggest recent winners.
 
 2. **Early breakout** (default): rank by momentum *acceleration* — stocks
-   whose 3-month return exceeds their annualized 12-month pace. Catches
-   stocks at the START of a move instead of after they're extended. Filters
-   out moonshots (12m return > 100%) and enforces a per-sector cap to avoid
-   concentration.
+   whose short-window return exceeds their long-window pace scaled to the
+   same horizon. The canonical config uses short=63d (3-month) and
+   long=252d (12-month). Catches stocks at the START of a move instead
+   of after they're extended. Filters out moonshots and enforces a
+   per-sector cap to avoid concentration.
 
    Validated on a 26-year survivorship-bias-free backtest (2000-2026):
    - Early breakout: Sharpe 0.520, CAGR 10.9%, 59.4% win rate
@@ -77,7 +78,7 @@ class CrossSectionalMomentum:
 
     def __init__(
         self,
-        lookback_days: int = 126,
+        lookback_days: int = 252,
         skip_days: int = 21,
         n_long: int = 15,
         rebalance_freq: int = 21,
@@ -86,7 +87,7 @@ class CrossSectionalMomentum:
         mode: str = "early_breakout",
         max_per_sector: int | None = 2,
         max_12m_return: float = 1.5,
-        short_lookback: int = 21,
+        short_lookback: int = 63,
         min_short_return: float = 0.10,
     ) -> None:
         self.lookback_days = lookback_days
