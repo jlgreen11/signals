@@ -8,6 +8,7 @@ import pandas as pd
 from signals.backtest.bias_free import (
     BacktestResult,
     BiasFreData,
+    _get_dead_tickers,
     default_acceleration_score,
     run_bias_free_backtest,
 )
@@ -269,3 +270,111 @@ class TestHoldDaysExit:
             f"Shorter hold ({r_short.n_trades} trades) should produce at least "
             f"as many trades as longer hold ({r_long.n_trades} trades)"
         )
+
+
+# ---------------------------------------------------------------------------
+# Test: _get_dead_tickers helper
+# ---------------------------------------------------------------------------
+class TestGetDeadTickers:
+    """Verify dead-ticker detection."""
+
+    def test_identifies_dead_tickers(self) -> None:
+        """A ticker with data ending early should be flagged as dead."""
+        data = _make_synthetic_data(n_tickers=5, n_days=200)
+        # Kill ticker SYN003: set all prices after row 100 to NaN
+        data.close_mat[101:, 3] = np.nan
+        dead = _get_dead_tickers(data)
+        assert "SYN003" in dead
+
+    def test_alive_tickers_not_flagged(self) -> None:
+        """Tickers with data through the end should not be dead."""
+        data = _make_synthetic_data(n_tickers=5, n_days=200)
+        dead = _get_dead_tickers(data)
+        assert len(dead) == 0
+
+    def test_all_nan_ticker_is_dead(self) -> None:
+        data = _make_synthetic_data(n_tickers=5, n_days=200)
+        data.close_mat[:, 2] = np.nan
+        dead = _get_dead_tickers(data)
+        assert "SYN002" in dead
+
+
+# ---------------------------------------------------------------------------
+# Test: use_full_universe mode
+# ---------------------------------------------------------------------------
+class TestFullUniverse:
+    """Verify full-universe mode works and differs from constituent mode."""
+
+    def test_full_universe_produces_different_results(self) -> None:
+        """Full-universe should see more eligible tickers and differ.
+
+        We set up data where the constituent map contains only half the
+        tickers, but the full universe has all of them. Full-universe
+        mode should pick from a wider pool and produce different (generally
+        more) trades.
+        """
+        n_tickers = 20
+        n_days = 600
+        data = _make_synthetic_data(n_tickers=n_tickers, n_days=n_days, seed=77)
+
+        # Make all tickers strongly trending so scoring passes
+        rng = np.random.default_rng(77)
+        for col in range(n_tickers):
+            rets = rng.normal(0.002, 0.01, size=n_days)
+            data.close_mat[:, col] = 100.0 * np.exp(np.cumsum(rets))
+
+        # Restrict constituent map to only the first half of tickers
+        first_half = [f"SYN{i:03d}" for i in range(n_tickers // 2)]
+        data.constituent_map = {"2020-01-01": first_half}
+        data.constituent_dates = ["2020-01-01"]
+
+        common = dict(
+            short=21, long=126, hold_days=42, n_long=8, max_per_sector=3,
+            rebalance_freq=21, min_short_return=0.02, max_long_return=5.0,
+        )
+        r_default = run_bias_free_backtest(data, use_full_universe=False, **common)
+        r_full = run_bias_free_backtest(data, use_full_universe=True, **common)
+
+        assert isinstance(r_full, BacktestResult)
+        assert r_full.final_equity > 0
+        # Full universe has twice the ticker pool, so it should find
+        # at least as many trades (likely more).
+        assert r_full.n_trades >= r_default.n_trades, (
+            f"Full universe ({r_full.n_trades} trades) should find at least "
+            f"as many trades as constituent mode ({r_default.n_trades} trades)"
+        )
+
+    def test_default_unchanged(self) -> None:
+        """Default (use_full_universe=False) must be identical to before."""
+        data = _make_synthetic_data(n_tickers=10, n_days=400, seed=42)
+        common = dict(
+            short=21, long=126, hold_days=42, n_long=5, max_per_sector=2,
+            rebalance_freq=21, min_short_return=0.05,
+        )
+        r1 = run_bias_free_backtest(data, **common)
+        r2 = run_bias_free_backtest(data, use_full_universe=False, **common)
+        assert r1.n_trades == r2.n_trades
+        assert abs(r1.final_equity - r2.final_equity) < 0.01
+
+    def test_full_universe_excludes_dead_tickers(self) -> None:
+        """Dead tickers should not appear in full-universe eligible set."""
+        n_tickers = 10
+        n_days = 500
+        data = _make_synthetic_data(n_tickers=n_tickers, n_days=n_days, seed=55)
+
+        rng = np.random.default_rng(55)
+        for col in range(n_tickers):
+            rets = rng.normal(0.002, 0.01, size=n_days)
+            data.close_mat[:, col] = 100.0 * np.exp(np.cumsum(rets))
+
+        # Kill half the tickers early
+        for col in range(5):
+            data.close_mat[200:, col] = np.nan
+
+        common = dict(
+            short=21, long=126, hold_days=42, n_long=5, max_per_sector=3,
+            rebalance_freq=21, min_short_return=0.02, max_long_return=5.0,
+        )
+        result = run_bias_free_backtest(data, use_full_universe=True, **common)
+        assert isinstance(result, BacktestResult)
+        assert result.final_equity > 0

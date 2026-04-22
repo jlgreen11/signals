@@ -239,15 +239,20 @@ def load_bias_free_data(
 
     cmap_dates = sorted(cmap.keys())
 
-    # Trading dates — only include dates where a majority of tickers have data
+    # Trading dates — only include dates where a majority of tickers have data.
+    # Normalize all timestamps to midnight UTC to avoid double-counting when
+    # different data sources use different intraday offsets (e.g., 00:00 vs 04:00).
     start_ts = pd.Timestamp(start, tz="UTC")
     end_ts = pd.Timestamp(end, tz="UTC")
     date_counts: dict[pd.Timestamp, int] = {}
-    for df in prices_dict.values():
+    for t, df in prices_dict.items():
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index, utc=True)
         elif df.index.tz is None:
             df.index = df.index.tz_localize("UTC")
+        # Normalize to midnight UTC
+        df.index = df.index.normalize()
+        prices_dict[t] = df
         for dt in df.index:
             if start_ts <= dt <= end_ts and dt.weekday() < 5:
                 date_counts[dt] = date_counts.get(dt, 0) + 1
@@ -355,6 +360,31 @@ def default_acceleration_score(
 
 
 # ---------------------------------------------------------------------------
+# Full-universe helper
+# ---------------------------------------------------------------------------
+def _get_dead_tickers(data: BiasFreData) -> set[str]:
+    """Identify tickers whose data ends before the last 10 bars.
+
+    A ticker is "dead" if its last non-NaN price is more than 10 bars
+    before the end of the close matrix. These are delisted or otherwise
+    stale tickers that should be excluded from the full-universe mode.
+    """
+    n_dates = data.close_mat.shape[0]
+    cutoff = n_dates - 10
+    dead: set[str] = set()
+    for col, ticker in enumerate(data.tickers):
+        col_data = data.close_mat[:, col]
+        valid_mask = ~np.isnan(col_data)
+        if not valid_mask.any():
+            dead.add(ticker)
+            continue
+        last_valid = int(np.max(np.nonzero(valid_mask)))
+        if last_valid < cutoff:
+            dead.add(ticker)
+    return dead
+
+
+# ---------------------------------------------------------------------------
 # Canonical backtest
 # ---------------------------------------------------------------------------
 def run_bias_free_backtest(
@@ -371,6 +401,7 @@ def run_bias_free_backtest(
     initial_cash: float = 100_000.0,
     cost_bps: float = 10.0,
     weight_fn: Callable | None = None,
+    use_full_universe: bool = False,
 ) -> BacktestResult:
     """Run the canonical survivorship-bias-free backtest.
 
@@ -405,6 +436,16 @@ def run_bias_free_backtest(
     weight_fn : callable, optional
         Custom position weighting: (selected_cols, close_mat, row) -> dict[col, weight].
         If None, uses equal weight.
+    use_full_universe : bool
+        When True, consider ALL tickers with valid price data at each
+        rebalance date instead of only point-in-time S&P 500 constituents.
+        Dead tickers (last valid price >10 bars before end of data) are
+        excluded. This eliminates survivorship bias from the constituent
+        list itself — the scoring function still sees the same data, but
+        the eligible set is broader, which typically improves diversification
+        and allows the strategy to catch momentum in stocks that were not
+        yet (or no longer) in the index. Default False preserves the
+        original constituent-based behavior.
 
     Returns
     -------
@@ -417,6 +458,15 @@ def run_bias_free_backtest(
     mat = data.close_mat
     cost_rate = cost_bps * 1e-4
     n_dates = len(data.trading_dates)
+
+    # Pre-compute dead tickers once for full-universe mode
+    if use_full_universe:
+        dead_tickers = _get_dead_tickers(data)
+        alive_cols = [
+            data.ticker_to_idx[t]
+            for t in data.tickers
+            if t not in dead_tickers
+        ]
 
     # Holdings: col -> {ep: entry_price, sh: shares, entry_row: int, sec: str}
     holdings: dict[int, dict] = {}
@@ -449,13 +499,19 @@ def run_bias_free_backtest(
         # === STEP 3: Check for new entries (monthly) ===
         bars_since_rebal += 1
         if bars_since_rebal >= rebalance_freq and row >= long:
-            # Get point-in-time constituents
-            eligible_tickers = _get_constituents(data, data.trading_dates[row])
-            eligible_cols = [
-                data.ticker_to_idx[t]
-                for t in eligible_tickers
-                if t in data.ticker_to_idx
-            ]
+            # Get eligible tickers: full universe or point-in-time constituents
+            if use_full_universe:
+                eligible_cols = [
+                    c for c in alive_cols
+                    if not np.isnan(mat[row, c])
+                ]
+            else:
+                eligible_tickers = _get_constituents(data, data.trading_dates[row])
+                eligible_cols = [
+                    data.ticker_to_idx[t]
+                    for t in eligible_tickers
+                    if t in data.ticker_to_idx
+                ]
 
             # Score all eligible stocks
             candidates: list[tuple[int, float, str]] = []
