@@ -196,6 +196,18 @@ The paper trading infrastructure is built. The Alpaca accounts are
 configured. The CLI commands are ready. Zero days of forward evidence
 have been collected. The strategy has never traded a single real dollar.
 
+**Update 2026-04-24:** 10 trading days of live paper-trading results
+now exist — see [`LIVE_RECORD.md`](./LIVE_RECORD.md). Momentum
+account +4.79% vs SPY +4.27% over 2026-04-10 → 2026-04-23. This is
+noise: n=10 returns cannot distinguish the strategy from leveraged
+SPY exposure in a rising market. It does, however, prove the
+plumbing works and surfaces two concrete concerns the backtest did
+not: (a) 75% of momentum buy orders canceled unfilled, so the live
+portfolio is missing three-quarters of its intended entries, and
+(b) the multifactor and baseline accounts are accidentally running
+on margin due to a position-sizing bug. Neither issue appears in
+the backtest.
+
 ## What's Actually True
 
 Strip out the survivorship-biased universe expansion and you get:

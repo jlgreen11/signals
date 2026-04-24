@@ -12,6 +12,13 @@ single most impactful improvement — lifting Sharpe from 0.659 to
 Sharpe correction at n_trials=3 (DSR=1.000) and four independent
 survivorship bias validations.
 
+> **Forward evidence (2026-04-24):** 10 trading days of live paper
+> trading on Alpaca. Momentum account +4.79% vs SPY +4.27%
+> (n=10, not statistically significant). See
+> [`LIVE_RECORD.md`](./LIVE_RECORD.md) and
+> [`SKEPTIC_REVIEW_V2.md`](./SKEPTIC_REVIEW_V2.md) for why the
+> backtest's headline numbers are probably inflated.
+
 ## Disclaimer
 
 Experimental research. Not financial advice. Backtest results are
